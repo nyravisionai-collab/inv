@@ -1,87 +1,101 @@
-# Inventory Management System (Termux Ready)
+# Inventory System
 
-Production-ready Vyapar-style Inventory & Billing.
+A lightweight inventory management application built with a React + Vite frontend and a Node.js + Express backend. The backend uses `sql.js`, a WebAssembly-powered SQLite engine, so the app can run with a simple local setup.
 
-**Stack:** React + Vite · Node.js + Express · **sql.js** (pure JS SQLite) · JWT  
-**Runs on:** Termux Android ARM64 · Linux · macOS · Windows  
-**No native modules · No NDK · Offline capable**
+## Tech Stack
 
-## One-command start
+- **Frontend:** React, Vite
+- **Backend:** Node.js, Express
+- **Database Engine:** `sql.js` (SQLite compiled to WebAssembly)
+- **Project Scripts:** `START.sh` and `STOP.sh` for simplified local operation
+
+## Key Features
+
+- Inventory management workflow for day-to-day stock tracking
+- Browser-based React interface
+- Express API backend
+- Local SQLite-style storage powered by `sql.js`
+- Gujarati / English language toggle for bilingual use
+
+## Gujarati / English Language Toggle
+
+The application includes a bilingual UI toggle so users can switch between English and Gujarati. This makes the inventory workflow easier for teams that prefer either language.
+
+The language toggle is designed to support:
+
+- English labels and interface text
+- Gujarati labels and interface text
+- Quick switching from the application UI
+- A cleaner user experience for multilingual inventory teams
+
+## Getting Started
+
+### Prerequisites
+
+Install the following before running the project:
+
+- Node.js
+- npm
+- A Unix-like shell environment for running the provided shell scripts
+
+### Enter the Project Directory
+
+From the repository checkout root:
 
 ```bash
-bash scripts/install.sh   # first time only
-bash START.sh
-```
-
-| Service | URL |
-|---------|-----|
-| **Frontend** | http://localhost:5173 · http://0.0.0.0:5173 |
-| **Backend API** | http://localhost:5000 · http://0.0.0.0:5000 |
-
-Stop: `bash STOP.sh`
-
-### Login
-
-| Role | Username | Password |
-|------|----------|----------|
-| Admin | admin | admin123 |
-| Staff | staff | staff123 |
-| Cashier | cashier | cashier123 |
-
-## Termux (Android)
-
-See **[TERMUX.md](TERMUX.md)** for full steps.
-
-```bash
-pkg update -y && pkg install -y nodejs git curl
 cd inventory-system
-bash scripts/install.sh
-bash START.sh
-# Open Chrome → http://localhost:5173
 ```
 
-## Why this works on Termux
+### Start the Application
 
-- **`better-sqlite3` removed** (needs NDK compile)
-- **`sql.js`** pure WebAssembly SQLite — `npm install` only
-- All other deps are pure JavaScript (`bcryptjs`, not `bcrypt`)
-- Binds `0.0.0.0` for localhost + LAN
-- Auto-creates `data/`, `uploads/`, `backups/`, `logs/`, `.env`
-
-## Features (unchanged)
-
-Dashboard · Sales (Invoice/Estimate/Order/Return/POS/PDF/WhatsApp/Barcode) · Purchases · Inventory (multi-warehouse, transfer, adjustment, batches) · Customers & Suppliers ledgers · Accounting (cash book, banks, expense, income, journal) · Reports (P&L, BS, GST, stock…) · Users & roles · Settings · Backup/Import/Export · Dark mode · Offline SW · Audit log · JWT security
-
-## Project layout
-
-```
-inventory-system/
-├── START.sh / STOP.sh / RUN.sh
-├── TERMUX.md · INSTALL.md · README.md
-├── backend/                 # Express API :5000
-│   ├── src/db/database.js   # sql.js adapter (better-sqlite3-compatible API)
-│   ├── data/ inventory.db
-│   ├── uploads/ backups/ logs/
-│   └── tests/
-├── frontend/                # React+Vite :5173
-└── scripts/install.sh
-```
-
-## Development
+From the project directory:
 
 ```bash
-cd backend && npm run dev          # API watch mode
-cd frontend && npm run dev         # Vite :5173
-cd backend && npm test             # 35 API tests
+./START.sh
 ```
 
-## Documentation
+If the scripts are not executable on your machine, run:
 
-- [INSTALL.md](INSTALL.md) — install steps
-- [TERMUX.md](TERMUX.md) — Android/Termux guide
-- [docs/API.md](docs/API.md) — REST API reference
-- [docs/TEST_REPORT.md](docs/TEST_REPORT.md) — verification report
+```bash
+chmod +x START.sh STOP.sh
+./START.sh
+```
 
-## License
+The start script is the recommended way to launch the frontend and backend together.
 
-MIT
+### Stop the Application
+
+From the project directory:
+
+```bash
+./STOP.sh
+```
+
+Use the stop script to shut down the locally running application processes cleanly.
+
+## Backend Tests
+
+Run backend tests from the project directory:
+
+```bash
+cd backend
+npm test
+```
+
+## Project Layout
+
+```text
+inventory-system/
+├── backend/      # Node.js + Express API and sql.js database logic
+├── frontend/     # React + Vite user interface
+├── START.sh      # Starts the local application
+├── STOP.sh       # Stops the local application
+└── README.md     # Consolidated project documentation
+```
+
+## Notes for Developers
+
+- Use `START.sh` and `STOP.sh` for normal local operation.
+- Keep documentation consolidated in this root `README.md` file.
+- Avoid adding separate Markdown files unless the documentation strategy changes.
+- Run backend tests before opening changes for review.
