@@ -1,0 +1,23 @@
+{
+  "name": "inventory-management-system",
+  "version": "1.1.0",
+  "description": "Termux-compatible Inventory Management System — React + Express + sql.js",
+  "private": true,
+  "scripts": {
+    "install:all": "cd backend && npm install --no-optional --omit=optional && cd ../frontend && npm install",
+    "migrate": "cd backend && node src/db/migrate.js",
+    "seed": "cd backend && node src/db/seed.js",
+    "build": "cd frontend && npx vite build",
+    "start": "bash START.sh",
+    "stop": "bash STOP.sh",
+    "dev:backend": "cd backend && PORT=5000 HOST=0.0.0.0 node src/server.js",
+    "dev:frontend": "cd frontend && npx vite --host 0.0.0.0 --port 5173",
+    "test": "cd backend && node --test tests/api.test.js",
+    "lint": "cd backend && npm run lint",
+    "setup": "bash scripts/install.sh"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
