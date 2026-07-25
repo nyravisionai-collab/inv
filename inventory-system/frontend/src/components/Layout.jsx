@@ -81,7 +81,7 @@ const NAV = [
 ];
 
 export default function Layout() {
-  const { user, theme, toggleTheme, online, settings } = useAuth();
+  const { user, theme, toggleTheme, online, settings, language, setLanguage, t } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
@@ -130,7 +130,7 @@ export default function Layout() {
 
   return (
     <div className="app-layout">
-      {!online && <div className="offline-banner" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999 }}>You are offline — changes will sync when reconnected</div>}
+      {!online && <div className="offline-banner" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999 }}>{t('You are offline — changes will sync when reconnected')}</div>}
 
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
 
@@ -142,7 +142,7 @@ export default function Layout() {
         <nav className="sidebar-nav">
           {NAV.map((section) => (
             <div key={section.title} className="nav-section">
-              <div className="nav-section-title">{section.title}</div>
+              <div className="nav-section-title">{t(section.title)}</div>
               {section.items.map((item) => (
                 <NavLink
                   key={item.to}
@@ -152,7 +152,7 @@ export default function Layout() {
                   onClick={() => setSidebarOpen(false)}
                 >
                   <item.icon size={20} />
-                  {item.label}
+                  {t(item.label)}
                 </NavLink>
               ))}
             </div>
@@ -169,7 +169,7 @@ export default function Layout() {
             <div className="search-box" ref={searchRef} style={{ position: 'relative' }}>
               <Search size={18} />
               <input
-                placeholder="Search products, customers, invoices..."
+                placeholder={t('Search products, customers, invoices...')}
                 value={searchQ}
                 onChange={(e) => handleSearch(e.target.value)}
                 onFocus={() => searchResults && setShowSearch(true)}
@@ -212,6 +212,26 @@ export default function Layout() {
             </div>
           </div>
           <div className="header-right">
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              style={{
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '4px 10px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                outline: 'none',
+                height: '36px',
+                marginRight: '4px'
+              }}
+            >
+              <option value="en">English</option>
+              <option value="gu">ગુજરાતી</option>
+            </select>
             <button className="btn-icon" onClick={toggleTheme} title="Toggle theme">
               {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
@@ -228,9 +248,9 @@ export default function Layout() {
               </button>
               {showNotifs && (
                 <div className="search-dropdown" style={{ right: 0, left: 'auto', width: 320 }}>
-                  <div className="search-group-title">Notifications</div>
+                  <div className="search-group-title">{t('Notifications')}</div>
                   {notifs.notifications?.length === 0 && (
-                    <div className="search-result-item" style={{ color: 'var(--text-secondary)' }}>No notifications</div>
+                    <div className="search-result-item" style={{ color: 'var(--text-secondary)' }}>{t('No notifications')}</div>
                   )}
                   {notifs.notifications?.slice(0, 10).map((n) => (
                     <div key={n.id} className="search-result-item" style={{ flexDirection: 'column', alignItems: 'flex-start', opacity: n.is_read ? 0.6 : 1 }}

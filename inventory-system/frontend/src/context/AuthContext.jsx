@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { settingsAPI } from '../api/client';
+import { translations } from '../utils/translations';
 
 const AuthContext = createContext(null);
 
@@ -48,6 +49,17 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
+  const [language, setLanguageState] = useState(() => localStorage.getItem('lang') || 'en');
+
+  const setLanguage = useCallback((lang) => {
+    setLanguageState(lang);
+    localStorage.setItem('lang', lang);
+  }, []);
+
+  const t = useCallback((key) => {
+    return translations[language]?.[key] || key;
+  }, [language]);
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   }, []);
@@ -77,6 +89,9 @@ export function AuthProvider({ children }) {
         loading,
         theme,
         online,
+        language,
+        setLanguage,
+        t,
         login: async () => user,
         logout: () => {},
         toggleTheme,
