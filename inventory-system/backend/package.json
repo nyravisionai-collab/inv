@@ -1,0 +1,46 @@
+{
+  "name": "inventory-system-backend",
+  "version": "1.1.0",
+  "description": "Termux-compatible Inventory Management System API (Vyapar-like) - pure JS SQLite",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
+    "test": "node --test tests/api.test.js",
+    "lint": "node -c src/server.js && node -c src/db/database.js && node -c src/db/migrate.js && node -c src/db/seed.js && echo 'Syntax OK'"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.5",
+    "cors": "^2.8.5",
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.5.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.15.2",
+    "qrcode": "^1.5.4",
+    "sql.js": "^1.14.1",
+    "uuid": "^11.0.5",
+    "xlsx": "^0.18.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "android",
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "arm64",
+    "x64",
+    "arm"
+  ]
+}

@@ -1,0 +1,89 @@
+const db = require('../db/database');
+const { round2, now } = require('../utils/helpers');
+
+function getDefaultWarehouse() {
+  return db.prepare('SELECT id FROM warehouses WHERE is_default = 1 AND is_active = 1').get()
+    || db.prepare('SELECT id FROM warehouses WHERE is_active = 1 LIMIT 1').get();
+}
+
+function updateProductStock(productId) {
+  const row = db.prepare('SELECT COALESCE(SUM(quantity), 0) as total FROM warehouse_stock WHERE product_id = ?').get(productId);
+  db.prepare("UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?").run(round2(row.total), now(), productId);
+  return row.total;
+}
+
+function adjustWarehouseStock(productId, warehouseId, qtyDelta) {
+  const existing = db.prepare('SELECT id, quantity FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ?').get(productId, warehouseId);
+  if (existing) {
+    const newQty = round2(existing.quantity + qtyDelta);
+    db.prepare("UPDATE warehouse_stock SET quantity = ?, updated_at = ? WHERE id = ?").run(newQty, now(), existing.id);
+  } else {
+    db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)').run(productId, warehouseId, round2(qtyDelta));
+  }
+  return updateProductStock(productId);
+}
+
+function setWarehouseStock(productId, warehouseId, quantity) {
+  const existing = db.prepare('SELECT id FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ?').get(productId, warehouseId);
+  if (existing) {
+    db.prepare("UPDATE warehouse_stock SET quantity = ?, updated_at = ? WHERE id = ?").run(round2(quantity), now(), existing.id);
+  } else {
+    db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)').run(productId, warehouseId, round2(quantity));
+  }
+  return updateProductStock(productId);
+}
+
+function reduceStock(productId, quantity, warehouseId = null) {
+  const wh = warehouseId || getDefaultWarehouse()?.id;
+  if (!wh) return;
+  adjustWarehouseStock(productId, wh, -Math.abs(quantity));
+}
+
+function increaseStock(productId, quantity, warehouseId = null) {
+  const wh = warehouseId || getDefaultWarehouse()?.id;
+  if (!wh) return;
+  adjustWarehouseStock(productId, wh, Math.abs(quantity));
+}
+
+function checkLowStock() {
+  const products = db.prepare(`
+    SELECT id, name, current_stock, min_stock, reorder_level
+    FROM products
+    WHERE is_active = 1 AND is_service = 0 AND current_stock <= min_stock AND min_stock > 0
+    ORDER BY current_stock ASC
+  `).all();
+  return products;
+}
+
+function createLowStockNotifications() {
+  const low = checkLowStock();
+  const admins = db.prepare("SELECT id FROM users WHERE role IN ('admin','manager') AND is_active = 1").all();
+  const insert = db.prepare(`
+    INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+    VALUES (?, 'low_stock', ?, ?, 'product', ?)
+  `);
+  for (const p of low) {
+    for (const u of admins) {
+      const exists = db.prepare(`
+        SELECT id FROM notifications
+        WHERE user_id = ? AND type = 'low_stock' AND reference_id = ? AND is_read = 0
+        AND date(created_at) = date('now','localtime')
+      `).get(u.id, p.id);
+      if (!exists) {
+        insert.run(u.id, 'Low Stock Alert', `${p.name} is low on stock (${p.current_stock}). Min: ${p.min_stock}`, p.id);
+      }
+    }
+  }
+  return low.length;
+}
+
+module.exports = {
+  getDefaultWarehouse,
+  updateProductStock,
+  adjustWarehouseStock,
+  setWarehouseStock,
+  reduceStock,
+  increaseStock,
+  checkLowStock,
+  createLowStockNotifications,
+};
