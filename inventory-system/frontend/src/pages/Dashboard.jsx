@@ -16,7 +16,7 @@ const COLORS = ['#1976d2', '#2e7d32', '#ed6c02', '#9c27b0', '#d32f2f', '#00796b'
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { formatMoney, settings } = useAuth();
+  const { formatMoney, settings, t } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -44,15 +44,15 @@ export default function Dashboard() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">Welcome to {settings?.company_name || 'your business'}</p>
+          <h1 className="page-title">{t('Dashboard')}</h1>
+          <p className="page-subtitle">{t('Welcome to')} {settings?.company_name || 'your business'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" onClick={() => navigate('/pos')}>
-            <Receipt size={18} /> <span className="hide-mobile">Open POS</span>
+            <Receipt size={18} /> <span className="hide-mobile">{t('Open POS')}</span>
           </button>
           <button className="btn btn-secondary" onClick={() => navigate('/sales/new')}>
-            + New Sale
+            + {t('New Sale')}
           </button>
         </div>
       </div>
@@ -62,7 +62,7 @@ export default function Dashboard() {
           <div key={s.label} className="stat-card" onClick={() => navigate(s.path)} style={{ cursor: 'pointer' }}>
             <div className={`stat-icon ${s.color}`}><s.icon size={24} /></div>
             <div>
-              <div className="stat-label">{s.label}</div>
+              <div className="stat-label">{t(s.label)}</div>
               <div className="stat-value">{s.value}</div>
               <div className="stat-sub">{s.sub}</div>
             </div>
@@ -72,7 +72,7 @@ export default function Dashboard() {
 
       <div className="grid-2" style={{ marginBottom: 24 }}>
         <div className="card">
-          <div className="card-header"><div className="card-title">Sales (Last 7 Days)</div></div>
+          <div className="card-header"><div className="card-title">{t('Sales (Last 7 Days)')}</div></div>
           <div className="card-body">
             <div className="chart-container">
               <ResponsiveContainer width="100%" height="100%">
@@ -95,7 +95,7 @@ export default function Dashboard() {
         </div>
 
         <div className="card">
-          <div className="card-header"><div className="card-title">Purchases (Last 7 Days)</div></div>
+          <div className="card-header"><div className="card-title">{t('Purchases (Last 7 Days)')}</div></div>
           <div className="card-body">
             <div className="chart-container">
               <ResponsiveContainer width="100%" height="100%">
@@ -115,13 +115,13 @@ export default function Dashboard() {
       <div className="grid-2" style={{ marginBottom: 24 }}>
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Top Selling Products</div>
-            <button className="btn btn-sm btn-secondary" onClick={() => navigate('/products')}>View All</button>
+            <div className="card-title">{t('Top Selling Products')}</div>
+            <button className="btn btn-sm btn-secondary" onClick={() => navigate('/products')}>{t('View All')}</button>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Product</th><th>Qty Sold</th><th>Revenue</th></tr>
+                <tr><th>{t('Product')}</th><th>{t('Qty Sold')}</th><th>{t('Revenue')}</th></tr>
               </thead>
               <tbody>
                 {(data.topProducts || []).length === 0 && (
@@ -150,13 +150,13 @@ export default function Dashboard() {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Low Stock Alerts</div>
-            <button className="btn btn-sm btn-secondary" onClick={() => navigate('/low-stock')}>View All</button>
+            <div className="card-title">{t('Low Stock Alerts')}</div>
+            <button className="btn btn-sm btn-secondary" onClick={() => navigate('/low-stock')}>{t('View All')}</button>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Product</th><th>Stock</th><th>Min</th></tr>
+                <tr><th>{t('Product')}</th><th>{t('Stock')}</th><th>{t('Min')}</th></tr>
               </thead>
               <tbody>
                 {(data.lowStock || []).length === 0 && (
@@ -177,12 +177,12 @@ export default function Dashboard() {
 
       <div className="card">
         <div className="card-header">
-          <div className="card-title">Recent Transactions</div>
+          <div className="card-title">{t('Recent Transactions')}</div>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Type</th><th>Number</th><th>Party</th><th>Date</th><th>Amount</th><th>Status</th></tr>
+              <tr><th>{t('Type')}</th><th>{t('Number')}</th><th>{t('Party')}</th><th>{t('Date')}</th><th>{t('Amount')}</th><th>{t('Status')}</th></tr>
             </thead>
             <tbody>
               {(data.recentTransactions || []).length === 0 && (

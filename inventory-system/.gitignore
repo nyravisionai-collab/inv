@@ -1,0 +1,22 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Databases and temporary files
+*.db
+*.db-wal
+*.db-shm
+*.tmp
+backend/data/inventory.db
+backend/data/test-inventory.db
+backend/backups/
+backend/uploads/
+backend/logs/
+
+# Build outputs
+frontend/dist/
+
+# Local environment
+backend/.env
