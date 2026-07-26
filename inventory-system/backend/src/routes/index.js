@@ -28,6 +28,7 @@ router.get('/dashboard', dashboard.getDashboard);
 // Products
 router.get('/products', products.list);
 router.get('/products/low-stock', products.lowStock);
+router.get('/products/barcodes/all', products.generateAllBarcodes);
 router.get('/products/barcode/:barcode', products.getByBarcode);
 router.get('/products/:id', products.getById);
 router.get('/products/:id/barcode', products.generateBarcode);

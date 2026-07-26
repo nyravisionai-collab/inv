@@ -259,4 +259,26 @@ describe('Inventory API (no-auth offline mode)', () => {
     const r = await req('POST', '/restore', { filename: '../../etc/passwd' });
     assert.ok(r.status >= 400);
   });
+
+  it('updates an existing product successfully', async () => {
+    const p = await req('POST', '/products', {
+      name: 'Edit Item', sku: 'E-1', selling_price: 50, opening_stock: 10,
+    });
+    const id = p.data.data.id;
+    const upd = await req('PUT', `/products/${id}`, {
+      name: 'Updated Item Name', selling_price: 75,
+    });
+    assert.strictEqual(upd.status, 200);
+    assert.strictEqual(upd.data.data.name, 'Updated Item Name');
+    assert.strictEqual(upd.data.data.selling_price, 75);
+  });
+
+  it('generates all barcodes for active products', async () => {
+    const r = await req('GET', '/products/barcodes/all');
+    assert.strictEqual(r.status, 200);
+    assert.ok(Array.isArray(r.data.data));
+    assert.ok(r.data.data.length > 0);
+    assert.ok(r.data.data[0].qr);
+    assert.ok(r.data.data[0].code);
+  });
 });

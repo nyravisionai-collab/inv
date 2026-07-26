@@ -27,6 +27,7 @@ export const productsAPI = {
   remove: (id) => api.delete(`/products/${id}`),
   barcode: (code) => api.get(`/products/barcode/${code}`),
   generateBarcode: (id) => api.get(`/products/${id}/barcode`),
+  allBarcodes: () => api.get('/products/barcodes/all'),
   lowStock: () => api.get('/products/low-stock'),
 };
 

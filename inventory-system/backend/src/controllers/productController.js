@@ -150,6 +150,18 @@ function update(req, res) {
     if (!existing) return error(res, 'Product not found', 404);
 
     const b = req.body;
+    const sku = b.sku !== undefined ? (b.sku || null) : existing.sku;
+    const barcode = b.barcode !== undefined ? (b.barcode || null) : existing.barcode;
+
+    if (sku) {
+      const ex = db.prepare('SELECT id, is_active FROM products WHERE sku = ? AND id != ?').get(sku, id);
+      if (ex && ex.is_active) return error(res, 'SKU already exists');
+    }
+    if (barcode) {
+      const ex = db.prepare('SELECT id, is_active FROM products WHERE barcode = ? AND id != ?').get(barcode, id);
+      if (ex && ex.is_active) return error(res, 'Barcode already exists');
+    }
+
     const image = req.file ? `/uploads/products/${req.file.filename}` : (b.image !== undefined ? b.image : existing.image);
 
     db.prepare(`
@@ -160,13 +172,13 @@ function update(req, res) {
       WHERE id=?
     `).run(
       b.name ?? existing.name,
-      b.sku !== undefined ? b.sku : existing.sku,
-      b.barcode !== undefined ? b.barcode : existing.barcode,
-      b.hsn_code !== undefined ? b.hsn_code : existing.hsn_code,
-      b.description !== undefined ? b.description : existing.description,
-      b.category_id !== undefined ? b.category_id : existing.category_id,
-      b.brand_id !== undefined ? b.brand_id : existing.brand_id,
-      b.unit_id !== undefined ? b.unit_id : existing.unit_id,
+      sku,
+      barcode,
+      b.hsn_code !== undefined ? (b.hsn_code || null) : existing.hsn_code,
+      b.description !== undefined ? (b.description || null) : existing.description,
+      b.category_id !== undefined ? (b.category_id || null) : existing.category_id,
+      b.brand_id !== undefined ? (b.brand_id || null) : existing.brand_id,
+      b.unit_id !== undefined ? (b.unit_id || null) : existing.unit_id,
       b.purchase_price !== undefined ? Number(b.purchase_price) : existing.purchase_price,
       b.selling_price !== undefined ? Number(b.selling_price) : existing.selling_price,
       b.mrp !== undefined ? Number(b.mrp) : existing.mrp,
@@ -233,6 +245,28 @@ async function generateBarcode(req, res) {
   }
 }
 
+async function generateAllBarcodes(req, res) {
+  try {
+    const productsList = db.prepare('SELECT * FROM products WHERE is_active = 1 ORDER BY name ASC').all();
+    const items = [];
+    for (const p of productsList) {
+      const code = p.barcode || p.sku || `P${p.id}`;
+      const qr = await QRCode.toDataURL(code, { width: 200, margin: 2 });
+      items.push({
+        id: p.id,
+        name: p.name,
+        code,
+        qr,
+        price: p.selling_price,
+        sku: p.sku || ''
+      });
+    }
+    return success(res, items);
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
 function lowStock(req, res) {
   try {
     return success(res, stockService.checkLowStock());
@@ -241,4 +275,4 @@ function lowStock(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, remove, getByBarcode, generateBarcode, lowStock };
+module.exports = { list, getById, create, update, remove, getByBarcode, generateBarcode, generateAllBarcodes, lowStock };

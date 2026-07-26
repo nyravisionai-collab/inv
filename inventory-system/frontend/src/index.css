@@ -619,6 +619,11 @@ tr:hover td { background: color-mix(in srgb, var(--primary) 4%, transparent); }
   .sidebar, .header, .no-print { display: none !important; }
   .main-content { margin-left: 0 !important; }
   .page { padding: 0 !important; }
+  body * { visibility: hidden; }
+  .modal-overlay, .modal-overlay *, .modal, .modal * { visibility: visible; }
+  .modal-overlay { position: absolute; left: 0; top: 0; width: 100%; height: auto; background: white !important; z-index: 9999; display: flex !important; align-items: flex-start !important; justify-content: center !important; }
+  .modal { box-shadow: none !important; max-height: none !important; width: 100% !important; max-width: 100% !important; border: none !important; position: static !important; }
+  .modal-footer { display: none !important; }
 }
 
 /* Animations */
