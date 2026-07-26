@@ -4,6 +4,8 @@ const path = require('path');
 const { success, error } = require('../utils/response');
 const { now } = require('../utils/helpers');
 const config = require('../config');
+const { csvSafeRows } = require('../utils/sanitize');
+const xlsxUtil = require('../utils/xlsx');
 
 function getSettings(req, res) {
   try {
@@ -164,29 +166,57 @@ function listBackups(req, res) {
 function restore(req, res) {
   try {
     const { filename } = req.body;
-    if (!filename) return error(res, 'Filename required');
-    const backupPath = path.join(path.resolve(config.backupDir), path.basename(filename));
-    if (!fs.existsSync(backupPath)) return error(res, 'Backup file not found', 404);
-    if (!filename.endsWith('.db')) return error(res, 'Only .db backups can be restored directly');
+    if (!filename) return error(res, 'Filename required', 400, null, 'ERR_REQUIRED');
+
+    // basename() keeps the lookup inside the backup directory.
+    const safeName = path.basename(String(filename));
+    if (!safeName.endsWith('.db')) {
+      return error(res, 'Only .db backups can be restored directly', 400, null, 'ERR_BACKUP_FORMAT');
+    }
+    const backupPath = path.join(path.resolve(config.backupDir), safeName);
+    if (!fs.existsSync(backupPath)) {
+      return error(res, 'Backup file not found', 404, null, 'ERR_NOT_FOUND');
+    }
 
     const dbPath = path.resolve(config.dbPath);
+
+    // Snapshot the current database so a bad restore can be undone.
+    const rollbackPath = `${dbPath}.pre-restore`;
     try {
       db.persist();
-      db.close();
+      if (fs.existsSync(dbPath)) fs.copyFileSync(dbPath, rollbackPath);
     } catch {
-      /* ignore */
+      /* best effort */
     }
+
     fs.copyFileSync(backupPath, dbPath);
 
-    // Re-init sql.js from restored file
     try {
-      // Reset module state by re-requiring is unsafe; tell user to restart
+      // Swap the in-memory image to the restored file so the running server
+      // keeps serving requests — no manual restart needed.
+      db.reload();
+    } catch (reloadErr) {
+      // Restore failed to load: put the previous database back.
+      try {
+        if (fs.existsSync(rollbackPath)) {
+          fs.copyFileSync(rollbackPath, dbPath);
+          db.reload();
+        }
+      } catch {
+        /* ignore */
+      }
+      return error(res, `Restore failed: ${reloadErr.message}`, 500, null, 'ERR_RESTORE_FAILED');
+    }
+
+    try {
+      if (fs.existsSync(rollbackPath)) fs.unlinkSync(rollbackPath);
     } catch {
       /* ignore */
     }
-    return success(res, null, 'Database restored. Please restart the server.');
+
+    return success(res, { restored: safeName }, 'Database restored');
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, 500, null, err.code);
   }
 }
 
@@ -208,18 +238,16 @@ function exportData(req, res) {
     if (format === 'csv') {
       const { stringify } = require('csv-stringify/sync');
       if (!rows.length) return error(res, 'No data to export');
-      const csv = stringify(rows, { header: true });
+      // Neutralise leading =, +, -, @ so spreadsheets do not execute exported
+      // values as formulas.
+      const csv = stringify(csvSafeRows(rows), { header: true });
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${type}-export.csv"`);
       return res.send(csv);
     }
 
     if (format === 'xlsx') {
-      const XLSX = require('xlsx');
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, type);
-      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      const buf = xlsxUtil.writeSheet(csvSafeRows(rows), type);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${type}-export.xlsx"`);
       return res.send(buf);
@@ -243,13 +271,10 @@ function importData(req, res) {
       const { parse } = require('csv-parse/sync');
       const content = fs.readFileSync(filePath, 'utf8');
       rows = parse(content, { columns: true, skip_empty_lines: true, trim: true });
-    } else if (ext === '.xlsx' || ext === '.xls') {
-      const XLSX = require('xlsx');
-      const wb = XLSX.readFile(filePath);
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(sheet);
+    } else if (ext === '.xlsx') {
+      rows = xlsxUtil.readSheet(fs.readFileSync(filePath));
     } else {
-      return error(res, 'Unsupported file format. Use CSV or Excel.');
+      return error(res, 'Unsupported file format. Use CSV or XLSX.', 400, null, 'ERR_FILE_FORMAT');
     }
 
     let imported = 0;

@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const { redact } = require('../utils/sanitize');
 
 function auditLog(action, entityType = null) {
   return (req, res, next) => {
@@ -15,7 +16,7 @@ function auditLog(action, entityType = null) {
             action,
             entityType,
             entityId,
-            JSON.stringify(req.method === 'GET' ? null : req.body).slice(0, 5000),
+            JSON.stringify(req.method === 'GET' ? null : redact(req.body)).slice(0, 5000),
             req.ip || req.connection?.remoteAddress || '',
             (req.get('user-agent') || '').slice(0, 500)
           );

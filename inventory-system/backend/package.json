@@ -8,10 +8,12 @@
     "dev": "node --watch src/server.js",
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",
-    "test": "node --test tests/api.test.js",
-    "lint": "node -c src/server.js && node -c src/db/database.js && node -c src/db/migrate.js && node -c src/db/seed.js && echo 'Syntax OK'"
+    "test": "node --test tests/*.test.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "@fontsource/noto-sans-gujarati": "^5.3.0",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
@@ -26,8 +28,7 @@
     "pdfkit": "^0.15.2",
     "qrcode": "^1.5.4",
     "sql.js": "^1.14.1",
-    "uuid": "^11.0.5",
-    "xlsx": "^0.18.5"
+    "uuid": "^11.0.5"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -42,5 +43,10 @@
     "arm64",
     "x64",
     "arm"
-  ]
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0"
+  }
 }

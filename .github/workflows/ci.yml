@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+defaults:
+  run:
+    working-directory: inventory-system
+
+jobs:
+  backend:
+    name: Backend (lint, test, audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: inventory-system/backend/package-lock.json
+
+      - name: Install
+        working-directory: inventory-system/backend
+        run: npm ci --omit=optional
+
+      - name: Lint
+        working-directory: inventory-system/backend
+        run: npm run lint
+
+      - name: Test
+        working-directory: inventory-system/backend
+        run: npm test
+
+      # Runtime dependencies must be clean. Dev-only tooling (eslint's
+      # transitive deps) is excluded because it never ships to users.
+      - name: Audit production dependencies
+        working-directory: inventory-system/backend
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Frontend (lint, i18n, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: inventory-system/frontend/package-lock.json
+
+      - name: Install
+        working-directory: inventory-system/frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: inventory-system/frontend
+        run: npm run lint
+
+      - name: Translation coverage
+        working-directory: inventory-system/frontend
+        run: npm run i18n:check
+
+      - name: Build
+        working-directory: inventory-system/frontend
+        run: npm run build
+
+      # GHSA-qwww-vcr4-c8h2 (react-router RSC CSRF) is reported for every
+      # 7.12+ release. This app is a client-only SPA using <BrowserRouter>
+      # with no RSC or server actions, so the advisory does not apply; older
+      # versions carry far more exploitable client-side XSS issues.
+      - name: Audit production dependencies
+        working-directory: inventory-system/frontend
+        run: |
+          npm audit --omit=dev --audit-level=high --json > audit.json || true
+          node -e "
+            const a = require('./audit.json');
+            const allowed = new Set(['react-router', 'react-router-dom']);
+            const bad = Object.entries(a.vulnerabilities || {})
+              .filter(([name, v]) =>
+                ['high', 'critical'].includes(v.severity) && !allowed.has(name));
+            if (bad.length) {
+              console.error('Unexpected high/critical vulnerabilities:');
+              for (const [n, v] of bad) console.error('  ' + n + ' (' + v.severity + ')');
+              process.exit(1);
+            }
+            console.log('OK: no unexpected high/critical advisories.');
+          "
+
+
+  secrets:
+    name: No committed secrets or data files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure runtime artefacts stay untracked
+        run: |
+          set -e
+          bad=$(git ls-files \
+            | grep -E '(^|/)\.env$|\.db$|(^|/)backups/|(^|/)data/.*\.db$' || true)
+          if [ -n "$bad" ]; then
+            echo "These files must not be committed:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "OK: no environment, database, or backup files tracked."

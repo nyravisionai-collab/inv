@@ -3,6 +3,7 @@ import { Search, Trash2, Plus, Minus, ShoppingCart, X } from 'lucide-react';
 import { productsAPI, salesAPI, customersAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -14,7 +15,7 @@ export default function POS() {
   const [paidAmount, setPaidAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [barcode, setBarcode] = useState('');
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const barcodeRef = useRef(null);
 
@@ -88,7 +89,7 @@ export default function POS() {
     : products;
 
   const checkout = async () => {
-    if (!cart.length) return error('Cart is empty');
+    if (!cart.length) return error(t('Cart is empty'));
     setSaving(true);
     try {
       const paid = paidAmount !== '' ? Number(paidAmount) : rounded;
@@ -106,7 +107,7 @@ export default function POS() {
       setCustomerId('');
       barcodeRef.current?.focus();
     } catch (err) {
-      error(err.response?.data?.message || 'Checkout failed');
+      error(apiErrorMessage(err, t, 'Checkout failed'));
     } finally {
       setSaving(false);
     }
@@ -119,13 +120,13 @@ export default function POS() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <div className="search-box" style={{ flex: 1, maxWidth: 'none' }}>
               <Search size={18} />
-              <input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input placeholder={t('Search products...')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <input
               ref={barcodeRef}
               className="form-control"
               style={{ width: 180 }}
-              placeholder="Scan barcode..."
+              placeholder={t('Scan barcode...')}
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               onKeyDown={handleBarcode}
@@ -155,7 +156,7 @@ export default function POS() {
               {cart.length > 0 && <button className="btn btn-sm btn-secondary" onClick={() => setCart([])}><Trash2 size={14} /> Clear</button>}
             </div>
             <select className="form-control" value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ height: 36 }}>
-              <option value="">Walk-in Customer</option>
+              <option value="">{t('Walk-in Customer')}</option>
               {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -164,7 +165,7 @@ export default function POS() {
             {cart.length === 0 && (
               <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
                 <ShoppingCart size={40} style={{ opacity: 0.3, marginBottom: 8 }} />
-                <p>Tap products to add</p>
+                <p>{t('Tap products to add')}</p>
               </div>
             )}
             {cart.map((item, idx) => (
@@ -186,15 +187,15 @@ export default function POS() {
 
           <div style={{ padding: 16, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 700, marginBottom: 12 }}>
-              <span>Total</span>
+              <span>{t('Total')}</span>
               <span style={{ color: 'var(--primary)' }}>{formatMoney(rounded)}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
               <select className="form-control" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} style={{ height: 36 }}>
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-                <option value="card">Card</option>
-                <option value="bank">Bank</option>
+                <option value="cash">{t('Cash')}</option>
+                <option value="upi">{t('UPI')}</option>
+                <option value="card">{t('Card')}</option>
+                <option value="bank">{t('Bank')}</option>
               </select>
               <input className="form-control" type="number" placeholder={`Paid (${rounded})`} value={paidAmount}
                 onChange={(e) => setPaidAmount(e.target.value)} style={{ height: 36 }} />

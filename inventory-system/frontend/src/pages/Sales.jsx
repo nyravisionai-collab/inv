@@ -4,7 +4,8 @@ import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer } from 'lu
 import { salesAPI, customersAPI, productsAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import Modal from '../components/Modal';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
 
@@ -26,15 +27,16 @@ function SalesList() {
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, limit: 20 });
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { error, success } = useToast();
+  const confirm = useConfirm();
   const navigate = useNavigate();
 
   const load = (page = 1) => {
     setLoading(true);
     salesAPI.list({ page, limit: 20, search: search || undefined, type: cfg.type })
       .then((r) => { setItems(r.data.data); setPagination(r.data.pagination); })
-      .catch(() => error('Failed to load'))
+      .catch(() => error(t('Failed to load')))
       .finally(() => setLoading(false));
   };
 
@@ -42,13 +44,13 @@ function SalesList() {
   useEffect(() => { const t = setTimeout(() => load(1), 300); return () => clearTimeout(t); }, [search]);
 
   const cancel = async (id) => {
-    if (!confirm('Cancel this document? Stock will be reversed.')) return;
+    if (!(await confirm(t('Cancel this document? Stock will be reversed.')))) return;
     try {
       await salesAPI.cancel(id);
-      success('Cancelled');
+      success(t('Cancelled'));
       load(pagination.page);
     } catch (err) {
-      error(err.response?.data?.message || 'Cancel failed');
+      error(apiErrorMessage(err, t, 'Cancel failed'));
     }
   };
 
@@ -67,7 +69,7 @@ function SalesList() {
         <div className="card-header">
           <div className="search-box" style={{ maxWidth: 320 }}>
             <Search size={18} />
-            <input placeholder="Search invoices..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input placeholder={t('Search invoices...')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
@@ -78,8 +80,8 @@ function SalesList() {
               <table>
                 <thead>
                   <tr>
-                    <th>Number</th><th>Date</th><th>Customer</th><th>Amount</th>
-                    <th>Paid</th><th>Balance</th><th>Status</th><th>Payment</th><th>Actions</th>
+                    <th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Customer')}</th><th>{t('Amount')}</th>
+                    <th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -120,7 +122,7 @@ function SaleForm() {
   const basePath = '/' + location.pathname.split('/')[1];
   const cfg = TYPE_MAP[basePath] || TYPE_MAP['/sales'];
   const navigate = useNavigate();
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -207,7 +209,7 @@ function SaleForm() {
       taxAmount += c.tax;
       itemDisc += c.disc;
     });
-    let invDisc = form.discount_type === 'percent'
+    const invDisc = form.discount_type === 'percent'
       ? (subtotal - itemDisc) * (Number(form.discount_value) || 0) / 100
       : (Number(form.discount_value) || 0);
     const grand = subtotal - itemDisc - invDisc + taxAmount + (Number(form.shipping_charges) || 0);
@@ -220,7 +222,7 @@ function SaleForm() {
 
   const save = async () => {
     const validItems = items.filter((i) => i.product_name && i.quantity > 0);
-    if (!validItems.length) return error('Add at least one item');
+    if (!validItems.length) return error(t('Add at least one item'));
     setSaving(true);
     try {
       const res = await salesAPI.create({
@@ -237,7 +239,7 @@ function SaleForm() {
       success(`${cfg.title.split(' ')[0]} created: ${res.data.data.invoice_number}`);
       navigate(basePath);
     } catch (err) {
-      error(err.response?.data?.message || 'Failed to create');
+      error(apiErrorMessage(err, t, 'Failed to create'));
     } finally {
       setSaving(false);
     }
@@ -250,7 +252,7 @@ function SaleForm() {
           <h1 className="page-title">{cfg.createLabel}</h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" onClick={() => navigate(basePath)}>Cancel</button>
+          <button className="btn btn-secondary" onClick={() => navigate(basePath)}>{t('Cancel')}</button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         </div>
       </div>
@@ -259,24 +261,24 @@ function SaleForm() {
         <div className="card-body">
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">Customer</label>
+              <label className="form-label">{t('Customer')}</label>
               <select className="form-control" value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>
-                <option value="">Walk-in Customer</option>
+                <option value="">{t('Walk-in Customer')}</option>
                 {customers.map((c) => <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>)}
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Date</label>
+              <label className="form-label">{t('Date')}</label>
               <input className="form-control" type="date" value={form.invoice_date} onChange={(e) => setForm({ ...form, invoice_date: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Due Date</label>
+              <label className="form-label">{t('Due Date')}</label>
               <input className="form-control" type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Warehouse</label>
+              <label className="form-label">{t('Warehouse')}</label>
               <select className="form-control" value={form.warehouse_id} onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })}>
-                <option value="">Default</option>
+                <option value="">{t('Default')}</option>
                 {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </div>
@@ -286,9 +288,9 @@ function SaleForm() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
-          <div className="card-title">Items</div>
+          <div className="card-title">{t('Items')}</div>
           <div style={{ position: 'relative', width: 280 }}>
-            <input className="form-control" placeholder="Search & add product..." value={productSearch}
+            <input className="form-control" placeholder={t('Search & add product...')} value={productSearch}
               onChange={(e) => setProductSearch(e.target.value)} style={{ height: 34 }} />
             {filteredProducts.length > 0 && (
               <div className="search-dropdown">
@@ -306,12 +308,12 @@ function SaleForm() {
           <table className="items-table">
             <thead>
               <tr>
-                <th style={{ minWidth: 180 }}>Product</th>
-                <th style={{ width: 80 }}>Qty</th>
-                <th style={{ width: 100 }}>Price</th>
-                <th style={{ width: 80 }}>Tax %</th>
-                <th style={{ width: 90 }}>Discount</th>
-                <th style={{ width: 100 }}>Total</th>
+                <th style={{ minWidth: 180 }}>{t('Product')}</th>
+                <th style={{ width: 80 }}>{t('Qty')}</th>
+                <th style={{ width: 100 }}>{t('Price')}</th>
+                <th style={{ width: 80 }}>{t('Tax %')}</th>
+                <th style={{ width: 90 }}>{t('Discount')}</th>
+                <th style={{ width: 100 }}>{t('Total')}</th>
                 <th style={{ width: 40 }}></th>
               </tr>
             </thead>
@@ -322,7 +324,7 @@ function SaleForm() {
                   <tr key={idx}>
                     <td>
                       <select className="form-control" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} style={{ height: 34 }}>
-                        <option value="">Select product</option>
+                        <option value="">{t('Select product')}</option>
                         {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </td>
@@ -349,23 +351,23 @@ function SaleForm() {
         <div className="card">
           <div className="card-body">
             <div className="form-group">
-              <label className="form-label">Notes</label>
+              <label className="form-label">{t('Notes')}</label>
               <textarea className="form-control" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} />
             </div>
             {cfg.type === 'sale' && (
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Paid Amount</label>
+                  <label className="form-label">{t('Paid Amount')}</label>
                   <input className="form-control" type="number" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Payment Mode</label>
+                  <label className="form-label">{t('Payment Mode')}</label>
                   <select className="form-control" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}>
-                    <option value="cash">Cash</option>
-                    <option value="upi">UPI</option>
-                    <option value="bank">Bank</option>
-                    <option value="card">Card</option>
-                    <option value="cheque">Cheque</option>
+                    <option value="cash">{t('Cash')}</option>
+                    <option value="upi">{t('UPI')}</option>
+                    <option value="bank">{t('Bank')}</option>
+                    <option value="card">{t('Card')}</option>
+                    <option value="cheque">{t('Cheque')}</option>
                   </select>
                 </div>
               </div>
@@ -375,10 +377,10 @@ function SaleForm() {
         <div className="card">
           <div className="card-body">
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span>Subtotal</span><strong>{formatMoney(totals.subtotal)}</strong>
+              <span>{t('Subtotal')}</span><strong>{formatMoney(totals.subtotal)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
-              <span>Discount</span>
+              <span>{t('Discount')}</span>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 <select className="form-control" value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value })} style={{ width: 70, height: 32 }}>
                   <option value="amount">₹</option>
@@ -388,19 +390,19 @@ function SaleForm() {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span>Tax</span><strong>{formatMoney(totals.taxAmount)}</strong>
+              <span>{t('Tax')}</span><strong>{formatMoney(totals.taxAmount)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
-              <span>Shipping</span>
+              <span>{t('Shipping')}</span>
               <input className="form-control" type="number" value={form.shipping_charges} onChange={(e) => setForm({ ...form, shipping_charges: e.target.value })} style={{ width: 100, height: 32 }} />
             </div>
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '12px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18 }}>
-              <strong>Grand Total</strong><strong style={{ color: 'var(--primary)' }}>{formatMoney(totals.grand)}</strong>
+              <strong>{t('Grand Total')}</strong><strong style={{ color: 'var(--primary)' }}>{formatMoney(totals.grand)}</strong>
             </div>
             {form.paid_amount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, color: 'var(--text-secondary)' }}>
-                <span>Balance</span><span>{formatMoney(totals.grand - (Number(form.paid_amount) || 0))}</span>
+                <span>{t('Balance')}</span><span>{formatMoney(totals.grand - (Number(form.paid_amount) || 0))}</span>
               </div>
             )}
           </div>
@@ -414,12 +416,12 @@ function SaleDetail() {
   const { id } = useParams();
   const [sale, setSale] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    salesAPI.get(id).then((r) => setSale(r.data.data)).catch(() => error('Not found')).finally(() => setLoading(false));
+    salesAPI.get(id).then((r) => setSale(r.data.data)).catch(() => error(t('Not found'))).finally(() => setLoading(false));
   }, [id]);
 
   const sendWhatsApp = async () => {
@@ -427,12 +429,12 @@ function SaleDetail() {
       const r = await salesAPI.whatsapp(id);
       window.open(r.data.data.link, '_blank');
     } catch {
-      error('Failed to generate WhatsApp link');
+      error(t('Failed to generate WhatsApp link'));
     }
   };
 
   if (loading) return <div className="spinner" />;
-  if (!sale) return <div className="empty-state"><h3>Sale not found</h3></div>;
+  if (!sale) return <div className="empty-state"><h3>{t('Sale not found')}</h3></div>;
 
   return (
     <div>
@@ -442,7 +444,7 @@ function SaleDetail() {
           <p className="page-subtitle">{sale.invoice_type} · {sale.invoice_date}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary" onClick={() => navigate(-1)}>Back</button>
+          <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
           <a className="btn btn-secondary" href={salesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a>
           <button className="btn btn-success" onClick={sendWhatsApp}><MessageCircle size={18} /> WhatsApp</button>
           <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> Print</button>
@@ -452,7 +454,7 @@ function SaleDetail() {
       <div className="grid-2" style={{ marginBottom: 16 }}>
         <div className="card">
           <div className="card-body">
-            <h3 style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-secondary)' }}>BILL TO</h3>
+            <h3 style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-secondary)' }}>{t('BILL TO')}</h3>
             <div style={{ fontWeight: 600, fontSize: 16 }}>{sale.customer_name || 'Walk-in Customer'}</div>
             {sale.customer_phone && <div>{sale.customer_phone}</div>}
             {sale.customer_address && <div style={{ color: 'var(--text-secondary)' }}>{sale.customer_address}</div>}
@@ -462,10 +464,10 @@ function SaleDetail() {
         <div className="card">
           <div className="card-body">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Status</span><div><span className={`badge ${sale.status === 'completed' ? 'badge-success' : 'badge-error'}`}>{sale.status}</span></div></div>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Payment</span><div><span className={`badge ${sale.payment_status === 'paid' ? 'badge-success' : sale.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{sale.payment_status}</span></div></div>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Total</span><div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(sale.grand_total)}</div></div>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Balance</span><div style={{ fontWeight: 700, fontSize: 18, color: sale.balance_amount > 0 ? 'var(--error)' : 'var(--success)' }}>{formatMoney(sale.balance_amount)}</div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Status')}</span><div><span className={`badge ${sale.status === 'completed' ? 'badge-success' : 'badge-error'}`}>{sale.status}</span></div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Payment')}</span><div><span className={`badge ${sale.payment_status === 'paid' ? 'badge-success' : sale.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{sale.payment_status}</span></div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Total')}</span><div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(sale.grand_total)}</div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Balance')}</span><div style={{ fontWeight: 700, fontSize: 18, color: sale.balance_amount > 0 ? 'var(--error)' : 'var(--success)' }}>{formatMoney(sale.balance_amount)}</div></div>
             </div>
           </div>
         </div>
@@ -475,7 +477,7 @@ function SaleDetail() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Item</th><th>HSN</th><th>Qty</th><th>Price</th><th>Tax</th><th>Total</th></tr>
+              <tr><th>#</th><th>{t('Item')}</th><th>{t('HSN')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax')}</th><th>{t('Total')}</th></tr>
             </thead>
             <tbody>
               {(sale.items || []).map((item, i) => (
@@ -494,24 +496,24 @@ function SaleDetail() {
         </div>
         <div className="card-body" style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <div style={{ width: 280 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Subtotal</span><span>{formatMoney(sale.subtotal)}</span></div>
-            {sale.discount_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Discount</span><span>-{formatMoney(sale.discount_amount)}</span></div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Tax</span><span>{formatMoney(sale.tax_amount)}</span></div>
-            {sale.shipping_charges > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>Shipping</span><span>{formatMoney(sale.shipping_charges)}</span></div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Subtotal')}</span><span>{formatMoney(sale.subtotal)}</span></div>
+            {sale.discount_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Discount')}</span><span>-{formatMoney(sale.discount_amount)}</span></div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Tax')}</span><span>{formatMoney(sale.tax_amount)}</span></div>
+            {sale.shipping_charges > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Shipping')}</span><span>{formatMoney(sale.shipping_charges)}</span></div>}
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700 }}><span>Total</span><span>{formatMoney(sale.grand_total)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>Paid</span><span>{formatMoney(sale.paid_amount)}</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>Balance</span><span style={{ fontWeight: 600 }}>{formatMoney(sale.balance_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700 }}><span>{t('Total')}</span><span>{formatMoney(sale.grand_total)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>{t('Paid')}</span><span>{formatMoney(sale.paid_amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>{t('Balance')}</span><span style={{ fontWeight: 600 }}>{formatMoney(sale.balance_amount)}</span></div>
           </div>
         </div>
       </div>
 
       {sale.payments?.length > 0 && (
         <div className="card">
-          <div className="card-header"><div className="card-title">Payments</div></div>
+          <div className="card-header"><div className="card-title">{t('Payments')}</div></div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Number</th><th>Date</th><th>Mode</th><th>Amount</th></tr></thead>
+              <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Mode')}</th><th>{t('Amount')}</th></tr></thead>
               <tbody>
                 {sale.payments.map((p) => (
                   <tr key={p.id}>

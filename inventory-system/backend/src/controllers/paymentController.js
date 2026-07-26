@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
+const { pageParams } = require('../utils/validate');
 const { today, round2, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const partyService = require('../services/partyService');
@@ -16,14 +17,13 @@ function list(req, res) {
     if (from_date) { where += ' AND p.payment_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND p.payment_date <= ?'; params.push(to_date); }
     if (search) {
-      where += ' AND (p.payment_number LIKE ? OR p.reference_number LIKE ? OR p.notes LIKE ?)';
+      where += ' AND (p.payment_number LIKE ? ESCAPE \'!\' OR p.reference_number LIKE ? ESCAPE \'!\' OR p.notes LIKE ? ESCAPE \'!\')';
       const q = `%${sanitizeLike(search)}%`;
       params.push(q, q, q);
     }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM payments p ${where}`).get(...params).c;
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
       SELECT p.*, ba.account_name as bank_account_name,
@@ -38,7 +38,7 @@ function list(req, res) {
       LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
 
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }

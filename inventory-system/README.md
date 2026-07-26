@@ -73,6 +73,49 @@ From the project directory:
 
 Use the stop script to shut down the locally running application processes cleanly.
 
+## Quality Checks
+
+Run everything the CI pipeline runs:
+
+```bash
+npm run verify      # lint + tests + translation coverage + build
+```
+
+Or individually:
+
+```bash
+npm run lint                    # ESLint across backend and frontend
+npm test                        # 48 backend unit + API tests
+npm run i18n:check              # reports untranslated / missing UI strings
+npm run build                   # production frontend build
+cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities
+```
+
+## Security Notes
+
+**This build has no login.** Authentication is intentionally disabled for
+offline single-shop use, and the server binds to `0.0.0.0` with `CORS_ORIGIN=*`
+so it can be reached from other devices on the same network. Anyone who can
+reach the port can read and modify all business data.
+
+Only run it on a network you trust. If you expose it more widely:
+
+- put it behind a reverse proxy with its own authentication,
+- set `TRUST_PROXY=1` so rate limiting sees real client IPs,
+- restrict `CORS_ORIGIN` to your actual frontend origin.
+
+Runtime files (`backend/.env`, `backend/data/`, `backend/backups/`) hold real
+business data and are deliberately excluded from version control.
+
+### Negative stock
+
+Sales are rejected when they would take stock below zero. To allow overselling,
+enable it explicitly:
+
+```sql
+UPDATE company_settings SET allow_negative_stock = 1 WHERE id = 1;
+```
+
 ## Backend Tests
 
 Run backend tests from the project directory:
@@ -82,15 +125,24 @@ cd backend
 npm test
 ```
 
+Tests cover the money maths (including tax-inclusive pricing), input
+validation, LIKE-escaping, audit-log redaction, the XLSX round-trip, and API
+regression cases such as oversell prevention and atomic document conversion.
+
 ## Project Layout
 
 ```text
 inventory-system/
-├── backend/      # Node.js + Express API and sql.js database logic
-├── frontend/     # React + Vite user interface
-├── START.sh      # Starts the local application
-├── STOP.sh       # Stops the local application
-└── README.md     # Consolidated project documentation
+├── backend/          # Node.js + Express API and sql.js database logic
+│   ├── src/utils/    # validation, sanitisation, PDF and XLSX helpers
+│   └── tests/        # unit + API tests
+├── frontend/         # React + Vite user interface
+│   ├── src/context/  # auth/settings, toasts, confirm dialogs
+│   └── scripts/      # i18n coverage checker
+├── START.sh          # Starts the local application
+├── STOP.sh           # Stops the local application
+├── CODE_REVIEW.md    # Audit findings and remediation notes
+└── README.md         # Consolidated project documentation
 ```
 
 ## Notes for Developers
@@ -98,4 +150,9 @@ inventory-system/
 - Use `START.sh` and `STOP.sh` for normal local operation.
 - Keep documentation consolidated in this root `README.md` file.
 - Avoid adding separate Markdown files unless the documentation strategy changes.
-- Run backend tests before opening changes for review.
+- Run `npm run verify` before opening changes for review.
+- Wrap all user-facing text in `t('...')` and add both languages to
+  `frontend/src/utils/translations.js`; `npm run i18n:check` enforces this.
+- Return errors from controllers with a stable `code` so the UI can translate
+  them instead of showing raw English text.
+- Never commit `.env`, `*.db`, or anything under `backups/`.

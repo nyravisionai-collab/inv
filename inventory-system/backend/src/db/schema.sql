@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   timezone TEXT DEFAULT 'Asia/Kolkata',
   low_stock_alert INTEGER DEFAULT 1,
   backup_auto INTEGER DEFAULT 0,
+  allow_negative_stock INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -296,6 +297,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   quantity REAL NOT NULL DEFAULT 1,
   unit_id INTEGER REFERENCES units(id),
   unit_price REAL NOT NULL DEFAULT 0,
+  cost_price REAL DEFAULT 0,
   discount_type TEXT DEFAULT 'amount',
   discount_value REAL DEFAULT 0,
   discount_amount REAL DEFAULT 0,

@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
+const { pageParams } = require('../utils/validate');
 const { now, sanitizeLike } = require('../utils/helpers');
 const stockService = require('../services/stockService');
 const QRCode = require('qrcode');
@@ -11,7 +12,7 @@ function list(req, res) {
     const params = [];
 
     if (search) {
-      where += ' AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ? OR p.hsn_code LIKE ?)';
+      where += ' AND (p.name LIKE ? ESCAPE \'!\' OR p.sku LIKE ? ESCAPE \'!\' OR p.barcode LIKE ? ESCAPE \'!\' OR p.hsn_code LIKE ? ESCAPE \'!\')';
       const s = `%${sanitizeLike(search)}%`;
       params.push(s, s, s, s);
     }
@@ -27,8 +28,7 @@ function list(req, res) {
     }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM products p ${where}`).get(...params).c;
-    const offset = (Math.max(1, +page) - 1) * Math.min(100, +limit || 20);
-    const lim = Math.min(100, +limit || 20);
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
       SELECT p.*, c.name as category_name, b.name as brand_name, u.name as unit_name, u.short_name as unit_short
@@ -41,7 +41,7 @@ function list(req, res) {
       LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
 
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }

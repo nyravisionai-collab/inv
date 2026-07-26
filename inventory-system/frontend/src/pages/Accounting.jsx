@@ -3,6 +3,8 @@ import { Plus, Trash2, Wallet } from 'lucide-react';
 import { accountingAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -17,8 +19,9 @@ export function Expenses() {
   const [banks, setBanks] = useState([]);
   const [form, setForm] = useState({ category: '', expense_date: today(), amount: '', payment_mode: 'cash', description: '' });
   const [saving, setSaving] = useState(false);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
+  const confirm = useConfirm();
 
   const load = (page = 1) => {
     setLoading(true);
@@ -27,19 +30,19 @@ export function Expenses() {
   useEffect(() => { load(); accountingAPI.banks().then((r) => setBanks(r.data.data)).catch(() => {}); }, []);
 
   const save = async () => {
-    if (!form.category || !form.amount) return error('Category and amount required');
+    if (!form.category || !form.amount) return error(t('Category and amount required'));
     setSaving(true);
     try {
       await accountingAPI.createExpense({ ...form, amount: Number(form.amount) });
-      success('Expense recorded'); setModal(false); load();
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+      success(t('Expense recorded')); setModal(false); load();
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
 
   const remove = async (id) => {
-    if (!confirm('Delete expense?')) return;
-    try { await accountingAPI.deleteExpense(id); success('Deleted'); load(pagination.page); }
-    catch (err) { error(err.response?.data?.message || 'Failed'); }
+    if (!(await confirm(t('Delete expense?')))) return;
+    try { await accountingAPI.deleteExpense(id); success(t('Deleted')); load(pagination.page); }
+    catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
   };
 
   const categories = ['Rent', 'Utilities', 'Salaries', 'Transport', 'Marketing', 'Maintenance', 'Office Supplies', 'Insurance', 'Other'];
@@ -47,7 +50,7 @@ export function Expenses() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Expenses</h1></div>
+        <div><h1 className="page-title">{t('Expenses')}</h1></div>
         <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Expense</button>
       </div>
       <div className="card">
@@ -55,7 +58,7 @@ export function Expenses() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Number</th><th>Date</th><th>Category</th><th>Description</th><th>Mode</th><th>Amount</th><th></th></tr></thead>
+                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Category')}</th><th>{t('Description')}</th><th>{t('Mode')}</th><th>{t('Amount')}</th><th></th></tr></thead>
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
@@ -74,35 +77,35 @@ export function Expenses() {
         )}
       </div>
       <Modal open={modal} onClose={() => setModal(false)} title="Add Expense"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>Save</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{t('Save')}</button></>}
       >
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Category</label>
+            <label className="form-label">{t('Category')}</label>
             <select className="form-control" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="">Select</option>
+              <option value="">{t('Select')}</option>
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Date</label>
+            <label className="form-label">{t('Date')}</label>
             <input className="form-control" type="date" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} />
           </div>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Amount</label>
+            <label className="form-label">{t('Amount')}</label>
             <input className="form-control" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Payment Mode</label>
+            <label className="form-label">{t('Payment Mode')}</label>
             <select className="form-control" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}>
-              <option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option>
+              <option value="cash">{t('Cash')}</option><option value="upi">{t('UPI')}</option><option value="bank">{t('Bank')}</option>
             </select>
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">Description</label>
+          <label className="form-label">{t('Description')}</label>
           <textarea className="form-control" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
         </div>
       </Modal>
@@ -117,7 +120,7 @@ export function Incomes() {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ category: '', income_date: today(), amount: '', payment_mode: 'cash', description: '' });
   const [saving, setSaving] = useState(false);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
 
   const load = (page = 1) => {
@@ -127,19 +130,19 @@ export function Incomes() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!form.category || !form.amount) return error('Category and amount required');
+    if (!form.category || !form.amount) return error(t('Category and amount required'));
     setSaving(true);
     try {
       await accountingAPI.createIncome({ ...form, amount: Number(form.amount) });
-      success('Income recorded'); setModal(false); load();
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+      success(t('Income recorded')); setModal(false); load();
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
 
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Other Income</h1></div>
+        <div><h1 className="page-title">{t('Other Income')}</h1></div>
         <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Income</button>
       </div>
       <div className="card">
@@ -147,7 +150,7 @@ export function Incomes() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Number</th><th>Date</th><th>Category</th><th>Description</th><th>Amount</th></tr></thead>
+                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Category')}</th><th>{t('Description')}</th><th>{t('Amount')}</th></tr></thead>
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
@@ -165,24 +168,24 @@ export function Incomes() {
         )}
       </div>
       <Modal open={modal} onClose={() => setModal(false)} title="Add Income"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>Save</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{t('Save')}</button></>}
       >
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Category</label>
-            <input className="form-control" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Interest, Commission..." />
+            <label className="form-label">{t('Category')}</label>
+            <input className="form-control" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder={t('Interest, Commission...')} />
           </div>
           <div className="form-group">
-            <label className="form-label">Date</label>
+            <label className="form-label">{t('Date')}</label>
             <input className="form-control" type="date" value={form.income_date} onChange={(e) => setForm({ ...form, income_date: e.target.value })} />
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">Amount</label>
+          <label className="form-label">{t('Amount')}</label>
           <input className="form-control" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
         </div>
         <div className="form-group">
-          <label className="form-label">Description</label>
+          <label className="form-label">{t('Description')}</label>
           <textarea className="form-control" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} />
         </div>
       </Modal>
@@ -195,7 +198,7 @@ export function Banks() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ account_name: '', bank_name: '', account_number: '', ifsc: '', account_type: 'bank', opening_balance: 0 });
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
 
   const load = () => {
@@ -205,11 +208,11 @@ export function Banks() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!form.account_name) return error('Name required');
+    if (!form.account_name) return error(t('Name required'));
     try {
       await accountingAPI.createBank({ ...form, opening_balance: Number(form.opening_balance) || 0 });
-      success('Account created'); setModal(false); load();
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+      success(t('Account created')); setModal(false); load();
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
   };
 
   const total = items.reduce((s, b) => s + b.current_balance, 0);
@@ -217,7 +220,7 @@ export function Banks() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Cash & Bank Accounts</h1><p className="page-subtitle">Total: {formatMoney(total)}</p></div>
+        <div><h1 className="page-title">{t('Cash & Bank Accounts')}</h1><p className="page-subtitle">Total: {formatMoney(total)}</p></div>
         <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Account</button>
       </div>
       <div className="stats-grid">
@@ -238,11 +241,11 @@ export function Banks() {
         {loading ? <div className="spinner" /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Account</th><th>Type</th><th>Bank</th><th>Number</th><th>Balance</th></tr></thead>
+              <thead><tr><th>{t('Account')}</th><th>{t('Type')}</th><th>{t('Bank')}</th><th>{t('Number')}</th><th>{t('Balance')}</th></tr></thead>
               <tbody>
                 {items.map((b) => (
                   <tr key={b.id}>
-                    <td style={{ fontWeight: 500 }}>{b.account_name} {b.is_default ? <span className="badge badge-info">Default</span> : ''}</td>
+                    <td style={{ fontWeight: 500 }}>{b.account_name} {b.is_default ? <span className="badge badge-info">{t('Default')}</span> : ''}</td>
                     <td><span className="badge badge-default">{b.account_type}</span></td>
                     <td>{b.bank_name || '—'}</td>
                     <td>{b.account_number || '—'}</td>
@@ -255,22 +258,22 @@ export function Banks() {
         )}
       </div>
       <Modal open={modal} onClose={() => setModal(false)} title="Add Account"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save}>{t('Save')}</button></>}
       >
-        <div className="form-group"><label className="form-label">Account Name</label><input className="form-control" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} /></div>
+        <div className="form-group"><label className="form-label">{t('Account Name')}</label><input className="form-control" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} /></div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Type</label>
+            <label className="form-label">{t('Type')}</label>
             <select className="form-control" value={form.account_type} onChange={(e) => setForm({ ...form, account_type: e.target.value })}>
-              <option value="cash">Cash</option><option value="bank">Bank</option><option value="upi">UPI</option><option value="other">Other</option>
+              <option value="cash">{t('Cash')}</option><option value="bank">{t('Bank')}</option><option value="upi">{t('UPI')}</option><option value="other">{t('Other')}</option>
             </select>
           </div>
-          <div className="form-group"><label className="form-label">Opening Balance</label><input className="form-control" type="number" value={form.opening_balance} onChange={(e) => setForm({ ...form, opening_balance: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Opening Balance')}</label><input className="form-control" type="number" value={form.opening_balance} onChange={(e) => setForm({ ...form, opening_balance: e.target.value })} /></div>
         </div>
-        <div className="form-group"><label className="form-label">Bank Name</label><input className="form-control" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} /></div>
+        <div className="form-group"><label className="form-label">{t('Bank Name')}</label><input className="form-control" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} /></div>
         <div className="form-row">
-          <div className="form-group"><label className="form-label">Account Number</label><input className="form-control" value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">IFSC</label><input className="form-control" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Account Number')}</label><input className="form-control" value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('IFSC')}</label><input className="form-control" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} /></div>
         </div>
       </Modal>
     </div>
@@ -282,7 +285,7 @@ export function CashBook() {
   const [loading, setLoading] = useState(true);
   const [from, setFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; });
   const [to, setTo] = useState(today());
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
 
   const load = () => {
     setLoading(true);
@@ -293,12 +296,12 @@ export function CashBook() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Cash Book</h1></div>
+        <div><h1 className="page-title">{t('Cash Book')}</h1></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input className="form-control" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />
           <span>to</span>
           <input className="form-control" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
-          <button className="btn btn-primary" onClick={load}>Load</button>
+          <button className="btn btn-primary" onClick={load}>{t('Load')}</button>
         </div>
       </div>
       <div className="card">
@@ -306,7 +309,7 @@ export function CashBook() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Particular</th><th>Type</th><th>Ref</th><th>Debit (In)</th><th>Credit (Out)</th><th>Balance</th></tr></thead>
+                <thead><tr><th>{t('Date')}</th><th>{t('Particular')}</th><th>{t('Type')}</th><th>{t('Ref')}</th><th>{t('Debit (In)')}</th><th>{t('Credit (Out)')}</th><th>{t('Balance')}</th></tr></thead>
                 <tbody>
                   {(data?.entries || []).map((e, i) => (
                     <tr key={i}>
@@ -318,7 +321,7 @@ export function CashBook() {
                     </tr>
                   ))}
                   {(!data?.entries || !data.entries.length) && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>No entries in this period</td></tr>
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No entries in this period')}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -345,7 +348,7 @@ export function Journals() {
     { account_name: '', debit: '', credit: '' },
   ]);
   const [saving, setSaving] = useState(false);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
 
   const load = () => {
@@ -356,29 +359,29 @@ export function Journals() {
 
   const save = async () => {
     const valid = lines.filter((l) => l.account_name);
-    if (valid.length < 2) return error('At least 2 lines required');
+    if (valid.length < 2) return error(t('At least 2 lines required'));
     setSaving(true);
     try {
       await accountingAPI.createJournal({
         ...form,
         lines: valid.map((l) => ({ account_name: l.account_name, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })),
       });
-      success('Journal entry created'); setModal(false); load();
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+      success(t('Journal entry created')); setModal(false); load();
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
 
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Journal Entries</h1></div>
+        <div><h1 className="page-title">{t('Journal Entries')}</h1></div>
         <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> New Entry</button>
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? <EmptyState title="No journal entries" /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Number</th><th>Date</th><th>Type</th><th>Narration</th><th>Debit</th><th>Credit</th></tr></thead>
+              <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Narration')}</th><th>{t('Debit')}</th><th>{t('Credit')}</th></tr></thead>
               <tbody>
                 {items.map((j) => (
                   <tr key={j.id}>
@@ -396,39 +399,39 @@ export function Journals() {
         )}
       </div>
       <Modal open={modal} onClose={() => setModal(false)} title="Journal Entry" size="lg"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>Save</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{t('Save')}</button></>}
       >
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Date</label>
+            <label className="form-label">{t('Date')}</label>
             <input className="form-control" type="date" value={form.entry_date} onChange={(e) => setForm({ ...form, entry_date: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Type</label>
+            <label className="form-label">{t('Type')}</label>
             <select className="form-control" value={form.entry_type} onChange={(e) => setForm({ ...form, entry_type: e.target.value })}>
-              <option value="journal">Journal</option>
-              <option value="contra">Contra</option>
-              <option value="payment">Payment</option>
-              <option value="receipt">Receipt</option>
+              <option value="journal">{t('Journal')}</option>
+              <option value="contra">{t('Contra')}</option>
+              <option value="payment">{t('Payment')}</option>
+              <option value="receipt">{t('Receipt')}</option>
             </select>
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">Narration</label>
+          <label className="form-label">{t('Narration')}</label>
           <input className="form-control" value={form.narration} onChange={(e) => setForm({ ...form, narration: e.target.value })} />
         </div>
         {lines.map((line, idx) => (
           <div className="form-row" key={idx}>
             <div className="form-group" style={{ flex: 2 }}>
-              <label className="form-label">Account</label>
-              <input className="form-control" value={line.account_name} onChange={(e) => { const n = [...lines]; n[idx].account_name = e.target.value; setLines(n); }} placeholder="Account name" />
+              <label className="form-label">{t('Account')}</label>
+              <input className="form-control" value={line.account_name} onChange={(e) => { const n = [...lines]; n[idx].account_name = e.target.value; setLines(n); }} placeholder={t('Account name')} />
             </div>
             <div className="form-group">
-              <label className="form-label">Debit</label>
+              <label className="form-label">{t('Debit')}</label>
               <input className="form-control" type="number" value={line.debit} onChange={(e) => { const n = [...lines]; n[idx].debit = e.target.value; n[idx].credit = ''; setLines(n); }} />
             </div>
             <div className="form-group">
-              <label className="form-label">Credit</label>
+              <label className="form-label">{t('Credit')}</label>
               <input className="form-control" type="number" value={line.credit} onChange={(e) => { const n = [...lines]; n[idx].credit = e.target.value; n[idx].debit = ''; setLines(n); }} />
             </div>
           </div>

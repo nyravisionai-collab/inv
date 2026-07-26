@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
+const { pageParams } = require('../utils/validate');
 const { now, sanitizeLike } = require('../utils/helpers');
 const partyService = require('../services/partyService');
 
@@ -9,7 +10,7 @@ function list(req, res) {
     let where = 'WHERE 1=1';
     const params = [];
     if (search) {
-      where += ' AND (name LIKE ? OR phone LIKE ? OR email LIKE ? OR gstin LIKE ?)';
+      where += ' AND (name LIKE ? ESCAPE \'!\' OR phone LIKE ? ESCAPE \'!\' OR email LIKE ? ESCAPE \'!\' OR gstin LIKE ? ESCAPE \'!\')';
       const s = `%${sanitizeLike(search)}%`;
       params.push(s, s, s, s);
     }
@@ -21,10 +22,9 @@ function list(req, res) {
     }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM suppliers ${where}`).get(...params).c;
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
     const rows = db.prepare(`SELECT * FROM suppliers ${where} ORDER BY name ASC LIMIT ? OFFSET ?`).all(...params, lim, offset);
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }

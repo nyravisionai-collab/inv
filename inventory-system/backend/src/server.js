@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
+const { sanitizeDeep } = require('./utils/sanitize');
+const { ValidationError } = require('./utils/validate');
 
 async function bootstrap() {
   // Ensure directories (Termux-safe absolute paths)
@@ -26,31 +28,14 @@ async function bootstrap() {
     if (!fs.existsSync(resolved)) fs.mkdirSync(resolved, { recursive: true });
   }
 
-  // Ensure .env exists
+  // Ensure .env exists, seeded from the single source of truth (.env.example)
+  // so the server and START.sh can never drift apart.
   const envPath = path.join(__dirname, '../.env');
   if (!fs.existsSync(envPath)) {
-    fs.writeFileSync(
-      envPath,
-      [
-        'PORT=5000',
-        'HOST=0.0.0.0',
-        'JWT_SECRET=inventory_mgmt_super_secret_jwt_key_2026_change_in_prod',
-        'JWT_EXPIRES_IN=7d',
-        'DB_PATH=./data/inventory.db',
-        'UPLOAD_DIR=./uploads',
-        'BACKUP_DIR=./backups',
-        'NODE_ENV=production',
-        'RATE_LIMIT_WINDOW_MS=900000',
-        'RATE_LIMIT_MAX=500',
-        'BCRYPT_ROUNDS=10',
-        'CORS_ORIGIN=*',
-        'COMPANY_NAME=My Business',
-        'CURRENCY=INR',
-        'CURRENCY_SYMBOL=₹',
-        'TIMEZONE=Asia/Kolkata',
-        '',
-      ].join('\n')
-    );
+    const examplePath = path.join(__dirname, '../.env.example');
+    if (fs.existsSync(examplePath)) {
+      fs.copyFileSync(examplePath, envPath);
+    }
   }
 
   // Init pure-JS SQLite (sql.js) + migrate — fresh empty business data only
@@ -100,8 +85,14 @@ async function bootstrap() {
 
   const app = express();
 
-  // Trust proxy for Termux / reverse proxies
-  app.set('trust proxy', 1);
+  // Only trust X-Forwarded-* when a reverse proxy is actually in front of us.
+  // Trusting it unconditionally lets any client spoof its IP and bypass the
+  // rate limiter.
+  if (config.trustProxy) {
+    app.set('trust proxy', config.trustProxy);
+  } else {
+    app.set('trust proxy', false);
+  }
 
   // Security
   app.use(
@@ -132,20 +123,10 @@ async function bootstrap() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // XSS basic protection
+  // Strip HTML from every incoming string, including those nested inside
+  // arrays such as invoice `items[]`.
   app.use((req, res, next) => {
-    if (req.body && typeof req.body === 'object') {
-      const sanitize = (obj) => {
-        for (const key of Object.keys(obj)) {
-          if (typeof obj[key] === 'string') {
-            obj[key] = obj[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-          } else if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-            sanitize(obj[key]);
-          }
-        }
-      };
-      sanitize(req.body);
-    }
+    if (req.body && typeof req.body === 'object') sanitizeDeep(req.body);
     next();
   });
 
@@ -155,7 +136,7 @@ async function bootstrap() {
 
   // Optional: serve built frontend from same origin (production single-port)
   const frontendDist = path.join(__dirname, '../../frontend/dist');
-  if (fs.existsSync(frontendDist) && process.env.SERVE_FRONTEND === '1') {
+  if (fs.existsSync(frontendDist) && config.serveFrontend) {
     app.use(express.static(frontendDist));
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
@@ -163,23 +144,28 @@ async function bootstrap() {
     });
   }
 
+  app.use('/api/*', (req, res) => {
+    res.status(404).json({ success: false, message: 'API endpoint not found', code: 'ERR_NOT_FOUND' });
+  });
+
   app.use((err, req, res, next) => {
+    if (err instanceof ValidationError || err.name === 'ValidationError') {
+      return res.status(err.status || 400).json({ success: false, message: err.message, code: err.code });
+    }
     console.error('Error:', err.message);
     if (err.name === 'MulterError' || (err.constructor && err.constructor.name === 'MulterError')) {
-      return res.status(400).json({ success: false, message: err.message });
+      return res.status(400).json({ success: false, message: err.message, code: 'ERR_UPLOAD' });
     }
     if (err.message === 'Invalid file type') {
-      return res.status(400).json({ success: false, message: err.message });
+      return res.status(400).json({ success: false, message: err.message, code: 'ERR_FILE_TYPE' });
     }
     res.status(err.status || 500).json({
       success: false,
       message: config.nodeEnv === 'production' ? 'Internal server error' : err.message,
+      code: err.code || 'ERR_INTERNAL',
     });
   });
 
-  app.use('/api/*', (req, res) => {
-    res.status(404).json({ success: false, message: 'API endpoint not found' });
-  });
 
   const PORT = config.port || 5000;
   const HOST = config.host || '0.0.0.0';

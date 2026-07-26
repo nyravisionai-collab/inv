@@ -8,21 +8,8 @@ mkdir -p backend/data backend/uploads backend/backups backend/logs
 mkdir -p backend/uploads/logos backend/uploads/products backend/uploads/avatars backend/uploads/imports backend/uploads/misc
 
 if [ ! -f backend/.env ]; then
-  cat > backend/.env << 'EOF'
-PORT=5000
-HOST=0.0.0.0
-DB_PATH=./data/inventory.db
-UPLOAD_DIR=./uploads
-BACKUP_DIR=./backups
-NODE_ENV=production
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX=2000
-CORS_ORIGIN=*
-COMPANY_NAME=My Business
-CURRENCY=INR
-CURRENCY_SYMBOL=₹
-TIMEZONE=Asia/Kolkata
-EOF
+  # .env.example is the single source of truth for defaults.
+  cp backend/.env.example backend/.env
 fi
 
 # Ensure HOST/PORT for LAN

@@ -1,5 +1,5 @@
 const db = require('../db/database');
-const { success, error, paginated } = require('../utils/response');
+const { success, error } = require('../utils/response');
 const { now, today, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
@@ -335,7 +335,7 @@ function stockReport(req, res) {
     let where = 'WHERE p.is_active = 1 AND p.is_service = 0';
     const params = [];
     if (category_id) { where += ' AND p.category_id = ?'; params.push(category_id); }
-    if (search) { where += ' AND (p.name LIKE ? OR p.sku LIKE ?)'; const s = `%${sanitizeLike(search)}%`; params.push(s, s); }
+    if (search) { where += ' AND (p.name LIKE ? ESCAPE \'!\' OR p.sku LIKE ? ESCAPE \'!\')'; const s = `%${sanitizeLike(search)}%`; params.push(s, s); }
     if (low_stock === '1') { where += ' AND p.current_stock <= p.min_stock AND p.min_stock > 0'; }
 
     let rows;

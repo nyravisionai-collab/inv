@@ -26,9 +26,12 @@ const storage = multer.diskStorage({
   },
 });
 
+// SVG is excluded: it can carry inline scripts and these files are served
+// back from /uploads. Legacy .xls (BIFF) is not supported by the XLSX reader.
+const ALLOWED_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|pdf|csv|xlsx)$/i;
+
 function fileFilter(req, file, cb) {
-  const allowed = /\.(jpg|jpeg|png|gif|webp|svg|pdf|csv|xlsx|xls)$/i;
-  if (allowed.test(path.extname(file.originalname))) {
+  if (ALLOWED_EXTENSIONS.test(path.extname(file.originalname))) {
     cb(null, true);
   } else {
     cb(new Error('Invalid file type'), false);

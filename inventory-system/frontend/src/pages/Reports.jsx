@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, FileText, Package, Users, Truck, Receipt } from 'lucide-react';
+import { TrendingUp, FileText, Package, Users, Truck, Receipt } from 'lucide-react';
 import { reportsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -27,7 +27,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
 
   const load = async (id) => {
     setActive(id);
@@ -59,24 +59,24 @@ export default function Reports() {
 
   const renderReport = () => {
     if (loading) return <div className="spinner" />;
-    if (!data) return <div className="empty-state"><h3>Select a report</h3></div>;
+    if (!data) return <div className="empty-state"><h3>{t('Select a report')}</h3></div>;
 
     if (active === 'profit-loss') {
       return (
         <div>
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-            <div className="stat-card"><div><div className="stat-label">Net Sales</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.netSales)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">COGS</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.cogs)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Gross Profit</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.grossProfit)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Expenses</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.totalExpenses)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Net Profit</div><div className="stat-value" style={{ fontSize: 18, color: data.netProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(data.netProfit)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Net Sales')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.netSales)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('COGS')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.cogs)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Gross Profit')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.grossProfit)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Expenses')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.totalExpenses)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Net Profit')}</div><div className="stat-value" style={{ fontSize: 18, color: data.netProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(data.netProfit)}</div></div></div>
           </div>
           {data.expenses?.length > 0 && (
             <div className="card" style={{ marginTop: 16 }}>
-              <div className="card-header"><div className="card-title">Expense Breakdown</div></div>
+              <div className="card-header"><div className="card-title">{t('Expense Breakdown')}</div></div>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>{t('Category')}</th><th>{t('Amount')}</th></tr></thead>
                   <tbody>
                     {data.expenses.map((e, i) => (
                       <tr key={i}><td>{e.category}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
@@ -94,7 +94,7 @@ export default function Reports() {
       return (
         <div className="grid-2">
           <div className="card">
-            <div className="card-header"><div className="card-title">Assets</div></div>
+            <div className="card-header"><div className="card-title">{t('Assets')}</div></div>
             <div className="card-body">
               {(data.assets?.cashAndBank || []).map((a, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -102,29 +102,29 @@ export default function Reports() {
                 </div>
               ))}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Stock Value</span><strong>{formatMoney(data.assets?.stockValue)}</strong>
+                <span>{t('Stock Value')}</span><strong>{formatMoney(data.assets?.stockValue)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Receivables</span><strong>{formatMoney(data.assets?.receivables)}</strong>
+                <span>{t('Receivables')}</span><strong>{formatMoney(data.assets?.receivables)}</strong>
               </div>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '12px 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16 }}>
-                <span>Total Assets</span><span>{formatMoney(data.assets?.total)}</span>
+                <span>{t('Total Assets')}</span><span>{formatMoney(data.assets?.total)}</span>
               </div>
             </div>
           </div>
           <div className="card">
-            <div className="card-header"><div className="card-title">Liabilities & Equity</div></div>
+            <div className="card-header"><div className="card-title">{t('Liabilities & Equity')}</div></div>
             <div className="card-body">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Payables</span><strong>{formatMoney(data.liabilities?.payables)}</strong>
+                <span>{t('Payables')}</span><strong>{formatMoney(data.liabilities?.payables)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>Retained Earnings</span><strong>{formatMoney(data.equity?.retainedEarnings)}</strong>
+                <span>{t('Retained Earnings')}</span><strong>{formatMoney(data.equity?.retainedEarnings)}</strong>
               </div>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '12px 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16 }}>
-                <span>Total</span><span>{formatMoney((data.liabilities?.total || 0) + (data.equity?.total || 0))}</span>
+                <span>{t('Total')}</span><span>{formatMoney((data.liabilities?.total || 0) + (data.equity?.total || 0))}</span>
               </div>
             </div>
           </div>
@@ -136,15 +136,15 @@ export default function Reports() {
       return (
         <div>
           <div className="stats-grid">
-            <div className="stat-card"><div><div className="stat-label">Output Tax</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.outputTax)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Input Tax</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.inputTax)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Net Tax Liability</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.netTax)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Output Tax')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.outputTax)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Input Tax')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.inputTax)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Net Tax Liability')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.netTax)}</div></div></div>
           </div>
           <div className="card" style={{ marginTop: 16 }}>
-            <div className="card-header"><div className="card-title">Outward Supply</div></div>
+            <div className="card-header"><div className="card-title">{t('Outward Supply')}</div></div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Invoice</th><th>Date</th><th>Party</th><th>Taxable</th><th>Tax</th><th>Total</th></tr></thead>
+                <thead><tr><th>{t('Invoice')}</th><th>{t('Date')}</th><th>{t('Party')}</th><th>{t('Taxable')}</th><th>{t('Tax')}</th><th>{t('Total')}</th></tr></thead>
                 <tbody>
                   {(data.outwardSupply || []).map((r, i) => (
                     <tr key={i}>
@@ -164,15 +164,15 @@ export default function Reports() {
       return (
         <div>
           <div className="stats-grid">
-            <div className="stat-card"><div><div className="stat-label">Invoices</div><div className="stat-value">{data.summary?.count || 0}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Total Sales</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.total)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Tax</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.tax)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Collected</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.paid)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Invoices')}</div><div className="stat-value">{data.summary?.count || 0}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Sales')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.total)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Tax')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.tax)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Collected')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.paid)}</div></div></div>
           </div>
           <div className="card" style={{ marginTop: 16 }}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Invoices</th><th>Total</th><th>Tax</th><th>Paid</th></tr></thead>
+                <thead><tr><th>{t('Date')}</th><th>{t('Invoices')}</th><th>{t('Total')}</th><th>{t('Tax')}</th><th>{t('Paid')}</th></tr></thead>
                 <tbody>
                   {(data.rows || []).map((r, i) => (
                     <tr key={i}>
@@ -193,14 +193,14 @@ export default function Reports() {
       return (
         <div>
           <div className="stats-grid">
-            <div className="stat-card"><div><div className="stat-label">Bills</div><div className="stat-value">{data.summary?.count || 0}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Total</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.total)}</div></div></div>
-            <div className="stat-card"><div><div className="stat-label">Paid</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.paid)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Bills')}</div><div className="stat-value">{data.summary?.count || 0}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.total)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Paid')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.summary?.paid)}</div></div></div>
           </div>
           <div className="card" style={{ marginTop: 16 }}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Bill</th><th>Supplier</th><th>Total</th><th>Paid</th><th>Status</th></tr></thead>
+                <thead><tr><th>{t('Date')}</th><th>{t('Bill')}</th><th>{t('Supplier')}</th><th>{t('Total')}</th><th>{t('Paid')}</th><th>{t('Status')}</th></tr></thead>
                 <tbody>
                   {(data.rows || []).map((r, i) => (
                     <tr key={i}>
@@ -222,14 +222,14 @@ export default function Reports() {
       return (
         <div>
           <div className="stats-grid">
-            <div className="stat-card"><div><div className="stat-label">Total Expenses</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.total)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Expenses')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(data.total)}</div></div></div>
           </div>
           <div className="grid-2" style={{ marginTop: 16 }}>
             <div className="card">
-              <div className="card-header"><div className="card-title">By Category</div></div>
+              <div className="card-header"><div className="card-title">{t('By Category')}</div></div>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Category</th><th>Count</th><th>Total</th></tr></thead>
+                  <thead><tr><th>{t('Category')}</th><th>{t('Count')}</th><th>{t('Total')}</th></tr></thead>
                   <tbody>
                     {(data.byCategory || []).map((e, i) => (
                       <tr key={i}><td>{e.category}</td><td>{e.count}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
@@ -239,10 +239,10 @@ export default function Reports() {
               </div>
             </div>
             <div className="card">
-              <div className="card-header"><div className="card-title">Details</div></div>
+              <div className="card-header"><div className="card-title">{t('Details')}</div></div>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Date</th><th>Category</th><th>Amount</th></tr></thead>
+                  <thead><tr><th>{t('Date')}</th><th>{t('Category')}</th><th>{t('Amount')}</th></tr></thead>
                   <tbody>
                     {(data.rows || []).map((e) => (
                       <tr key={e.id}><td>{e.expense_date}</td><td>{e.category}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td></tr>
@@ -262,7 +262,7 @@ export default function Reports() {
         <div className="card">
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Qty</th><th>Purchase</th><th>Selling</th><th>Value</th></tr></thead>
+              <thead><tr><th>{t('Product')}</th><th>{t('SKU')}</th><th>{t('Category')}</th><th>{t('Qty')}</th><th>{t('Purchase')}</th><th>{t('Selling')}</th><th>{t('Value')}</th></tr></thead>
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id}>
@@ -290,9 +290,9 @@ export default function Reports() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th>
+                  <th>{t('Name')}</th><th>{t('Phone')}</th>
                   <th>{active === 'customers' ? 'Sales' : 'Purchases'}</th>
-                  <th>Invoices</th><th>Balance</th>
+                  <th>{t('Invoices')}</th><th>{t('Balance')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -319,8 +319,8 @@ export default function Reports() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Reports</h1>
-          <p className="page-subtitle">Business analytics and financial reports</p>
+          <h1 className="page-title">{t('Reports')}</h1>
+          <p className="page-subtitle">{t('Business analytics and financial reports')}</p>
         </div>
         {active && !['stock', 'customers', 'suppliers', 'balance-sheet'].includes(active) && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -338,7 +338,7 @@ export default function Reports() {
               <div className={`stat-icon ${r.color}`}><r.icon size={24} /></div>
               <div>
                 <div className="stat-value" style={{ fontSize: 16 }}>{r.label}</div>
-                <div className="stat-sub">Click to view</div>
+                <div className="stat-sub">{t('Click to view')}</div>
               </div>
             </div>
           ))}

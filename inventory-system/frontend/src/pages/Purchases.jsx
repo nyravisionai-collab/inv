@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Plus, Search, Eye, XCircle } from 'lucide-react';
-import { purchasesAPI, suppliersAPI, productsAPI, inventoryAPI } from '../api/client';
+import { purchasesAPI, suppliersAPI, productsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
 
@@ -22,15 +24,16 @@ function PurchaseList() {
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, limit: 20 });
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { error, success } = useToast();
+  const confirm = useConfirm();
   const navigate = useNavigate();
 
   const load = (page = 1) => {
     setLoading(true);
     purchasesAPI.list({ page, limit: 20, search: search || undefined, type: cfg.type })
       .then((r) => { setItems(r.data.data); setPagination(r.data.pagination); })
-      .catch(() => error('Failed to load'))
+      .catch(() => error(t('Failed to load')))
       .finally(() => setLoading(false));
   };
 
@@ -38,9 +41,9 @@ function PurchaseList() {
   useEffect(() => { const t = setTimeout(() => load(1), 300); return () => clearTimeout(t); }, [search]);
 
   const cancel = async (id) => {
-    if (!confirm('Cancel this bill?')) return;
-    try { await purchasesAPI.cancel(id); success('Cancelled'); load(pagination.page); }
-    catch (err) { error(err.response?.data?.message || 'Failed'); }
+    if (!(await confirm(t('Cancel this bill?')))) return;
+    try { await purchasesAPI.cancel(id); success(t('Cancelled')); load(pagination.page); }
+    catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
   };
 
   return (
@@ -52,7 +55,7 @@ function PurchaseList() {
       <div className="card">
         <div className="card-header">
           <div className="search-box" style={{ maxWidth: 320 }}>
-            <Search size={18} /><input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Search size={18} /><input placeholder={t('Search...')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
@@ -61,7 +64,7 @@ function PurchaseList() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Number</th><th>Date</th><th>Supplier</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Status</th><th>Payment</th><th>Actions</th></tr></thead>
+                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Supplier')}</th><th>{t('Amount')}</th><th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th></tr></thead>
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
@@ -97,7 +100,7 @@ function PurchaseForm() {
   const basePath = '/' + location.pathname.split('/')[1];
   const cfg = TYPE_MAP[basePath] || TYPE_MAP['/purchases'];
   const navigate = useNavigate();
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -141,7 +144,7 @@ function PurchaseForm() {
 
   const save = async () => {
     const validItems = items.filter((i) => i.product_name && i.quantity > 0);
-    if (!validItems.length) return error('Add at least one item');
+    if (!validItems.length) return error(t('Add at least one item'));
     setSaving(true);
     try {
       const res = await purchasesAPI.create({
@@ -152,7 +155,7 @@ function PurchaseForm() {
       success(`Created: ${res.data.data.bill_number}`);
       navigate(basePath);
     } catch (err) {
-      error(err.response?.data?.message || 'Failed');
+      error(apiErrorMessage(err, t, 'Failed'));
     } finally { setSaving(false); }
   };
 
@@ -161,7 +164,7 @@ function PurchaseForm() {
       <div className="page-header">
         <h1 className="page-title">{cfg.createLabel}</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary" onClick={() => navigate(basePath)}>Cancel</button>
+          <button className="btn btn-secondary" onClick={() => navigate(basePath)}>{t('Cancel')}</button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         </div>
       </div>
@@ -169,14 +172,14 @@ function PurchaseForm() {
         <div className="card-body">
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">Supplier</label>
+              <label className="form-label">{t('Supplier')}</label>
               <select className="form-control" value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
-                <option value="">Select supplier</option>
+                <option value="">{t('Select supplier')}</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Date</label>
+              <label className="form-label">{t('Date')}</label>
               <input className="form-control" type="date" value={form.bill_date} onChange={(e) => setForm({ ...form, bill_date: e.target.value })} />
             </div>
             <div className="form-group">
@@ -187,23 +190,23 @@ function PurchaseForm() {
         </div>
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header"><div className="card-title">Items</div></div>
+        <div className="card-header"><div className="card-title">{t('Items')}</div></div>
         <div className="table-wrap">
           <table className="items-table">
-            <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Tax %</th><th>Batch</th><th>Total</th><th></th></tr></thead>
+            <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
             <tbody>
               {items.map((item, idx) => (
                 <tr key={idx}>
                   <td>
                     <select className="form-control" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} style={{ height: 34 }}>
-                      <option value="">Select</option>
+                      <option value="">{t('Select')}</option>
                       {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </td>
                   <td><input className="form-control" type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
                   <td><input className="form-control" type="number" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
                   <td><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
-                  <td><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder="Batch#" /></td>
+                  <td><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
                   <td style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
                   <td><button className="btn-icon" onClick={() => items.length > 1 && setItems(items.filter((_, i) => i !== idx))}><XCircle size={16} /></button></td>
                 </tr>
@@ -219,17 +222,17 @@ function PurchaseForm() {
         <div className="card-body">
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">Paid Amount</label>
+              <label className="form-label">{t('Paid Amount')}</label>
               <input className="form-control" type="number" value={form.paid_amount} onChange={(e) => setForm({ ...form, paid_amount: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Payment Mode</label>
+              <label className="form-label">{t('Payment Mode')}</label>
               <select className="form-control" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}>
-                <option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option>
+                <option value="cash">{t('Cash')}</option><option value="upi">{t('UPI')}</option><option value="bank">{t('Bank')}</option>
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Grand Total</label>
+              <label className="form-label">{t('Grand Total')}</label>
               <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--primary)', lineHeight: '40px' }}>{formatMoney(grand)}</div>
             </div>
           </div>
@@ -243,7 +246,7 @@ function PurchaseDetail() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -251,24 +254,24 @@ function PurchaseDetail() {
   }, [id]);
 
   if (loading) return <div className="spinner" />;
-  if (!data) return <div className="empty-state"><h3>Not found</h3></div>;
+  if (!data) return <div className="empty-state"><h3>{t('Not found')}</h3></div>;
 
   return (
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{data.bill_number}</h1><p className="page-subtitle">{data.bill_date} · {data.supplier_name}</p></div>
-        <button className="btn btn-secondary" onClick={() => navigate(-1)}>Back</button>
+        <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
       </div>
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="stat-card"><div><div className="stat-label">Total</div><div className="stat-value">{formatMoney(data.grand_total)}</div></div></div>
-        <div className="stat-card"><div><div className="stat-label">Paid</div><div className="stat-value">{formatMoney(data.paid_amount)}</div></div></div>
-        <div className="stat-card"><div><div className="stat-label">Balance</div><div className="stat-value">{formatMoney(data.balance_amount)}</div></div></div>
-        <div className="stat-card"><div><div className="stat-label">Status</div><div className="stat-value" style={{ fontSize: 16 }}><span className={`badge ${data.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{data.payment_status}</span></div></div></div>
+        <div className="stat-card"><div><div className="stat-label">{t('Total')}</div><div className="stat-value">{formatMoney(data.grand_total)}</div></div></div>
+        <div className="stat-card"><div><div className="stat-label">{t('Paid')}</div><div className="stat-value">{formatMoney(data.paid_amount)}</div></div></div>
+        <div className="stat-card"><div><div className="stat-label">{t('Balance')}</div><div className="stat-value">{formatMoney(data.balance_amount)}</div></div></div>
+        <div className="stat-card"><div><div className="stat-label">{t('Status')}</div><div className="stat-value" style={{ fontSize: 16 }}><span className={`badge ${data.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{data.payment_status}</span></div></div></div>
       </div>
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Price</th><th>Tax</th><th>Total</th></tr></thead>
+            <thead><tr><th>#</th><th>{t('Item')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax')}</th><th>{t('Total')}</th></tr></thead>
             <tbody>
               {(data.items || []).map((item, i) => (
                 <tr key={item.id}>
