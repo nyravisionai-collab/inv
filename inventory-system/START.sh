@@ -15,8 +15,11 @@ fi
 # Ensure HOST/PORT for LAN
 if ! grep -q '^HOST=' backend/.env 2>/dev/null; then echo 'HOST=0.0.0.0' >> backend/.env; fi
 if ! grep -q '^PORT=' backend/.env 2>/dev/null; then echo 'PORT=5000' >> backend/.env; fi
+if ! grep -q '^LAN_ONLY=' backend/.env 2>/dev/null; then echo 'LAN_ONLY=1' >> backend/.env; fi
 sed -i 's/^HOST=.*/HOST=0.0.0.0/' backend/.env 2>/dev/null || true
 sed -i 's/^PORT=.*/PORT=5000/' backend/.env 2>/dev/null || true
+LAN_ONLY_VALUE=$(grep '^LAN_ONLY=' backend/.env 2>/dev/null | tail -n 1 | cut -d= -f2-)
+export LAN_ONLY="${LAN_ONLY_VALUE:-1}"
 
 if [ ! -d backend/node_modules/sql.js ] && [ ! -d backend/node_modules/express ]; then
   echo "→ Installing backend dependencies..."
@@ -56,7 +59,7 @@ LAN_IP=$(detect_ip)
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║   Inventory Management System                            ║"
-echo "║   Offline desktop mode — No Login                        ║"
+echo "║   Offline desktop mode — No Login, LAN-only              ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 

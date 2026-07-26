@@ -8,6 +8,7 @@ const fs = require('fs');
 const config = require('./config');
 const { sanitizeDeep } = require('./utils/sanitize');
 const { ValidationError } = require('./utils/validate');
+const { createLanOnlyMiddleware } = require('./middleware/networkAccess');
 
 async function bootstrap() {
   // Ensure directories (Termux-safe absolute paths)
@@ -93,6 +94,9 @@ async function bootstrap() {
   } else {
     app.set('trust proxy', false);
   }
+
+  // Keep the no-login offline build limited to this machine and local networks.
+  app.use(createLanOnlyMiddleware({ enabled: config.lanOnly }));
 
   // Security
   app.use(

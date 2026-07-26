@@ -94,13 +94,20 @@ cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities
 ## Security Notes
 
 **This build has no login.** Authentication is intentionally disabled for
-offline single-shop use, and the server binds to `0.0.0.0` with `CORS_ORIGIN=*`
-so it can be reached from other devices on the same network. Anyone who can
-reach the port can read and modify all business data.
+offline single-shop use. The app binds to `0.0.0.0` so phones/tablets/computers
+on the same network can open it, but `LAN_ONLY=1` is enabled by default so the
+frontend and backend reject clients whose source IP is not local/private LAN
+(loopback, `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`, link-local, common local
+VPN/mesh `100.64-127.x.x`, and IPv6 ULA/link-local).
 
-Only run it on a network you trust. If you expose it more widely:
+Anyone on your trusted LAN who can reach the port can read and modify all
+business data. Keep router port-forwarding disabled and do not expose ports
+`5000` or `5173` to the internet.
+
+Only run it on a network you trust. If you intentionally expose it more widely:
 
 - put it behind a reverse proxy with its own authentication,
+- set `LAN_ONLY=0` only after the proxy/firewall handles access control,
 - set `TRUST_PROXY=1` so rate limiting sees real client IPs,
 - restrict `CORS_ORIGIN` to your actual frontend origin.
 

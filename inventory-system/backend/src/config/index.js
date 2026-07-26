@@ -43,6 +43,7 @@ module.exports = {
   bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '10', 10),
   corsOrigin: process.env.CORS_ORIGIN || '*',
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  lanOnly: parseBool(process.env.LAN_ONLY, true),
   serveFrontend: parseBool(process.env.SERVE_FRONTEND, false),
   companyName: process.env.COMPANY_NAME || 'My Business',
   currency: process.env.CURRENCY || 'INR',

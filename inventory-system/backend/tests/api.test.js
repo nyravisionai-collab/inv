@@ -55,6 +55,13 @@ describe('Inventory API (no-auth offline mode)', () => {
     assert.strictEqual(data.success, true);
   });
 
+  it('blocks public clients forwarded through the local frontend proxy', async () => {
+    const res = await fetch(`${baseUrl}/health`, { headers: { 'x-forwarded-for': '8.8.8.8' } });
+    const data = await res.json();
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(data.code, 'ERR_LAN_ONLY');
+  });
+
   it('dashboard without token', async () => {
     const { status, data } = await req('GET', '/dashboard');
     assert.strictEqual(status, 200);
