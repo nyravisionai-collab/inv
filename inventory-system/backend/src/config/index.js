@@ -23,10 +23,16 @@ function parseBool(raw, fallback = false) {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+const authEnabled = parseBool(process.env.AUTH_ENABLED, false);
+
+if (authEnabled && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set in .env when AUTH_ENABLED is enabled');
+}
+
 module.exports = {
   port: parseInt(process.env.PORT || '5000', 10),
   host: process.env.HOST || '0.0.0.0',
-  jwtSecret: process.env.JWT_SECRET || 'inventory_mgmt_super_secret_jwt_key_2026',
+  jwtSecret: authEnabled ? process.env.JWT_SECRET : (process.env.JWT_SECRET || 'inventory_mgmt_super_secret_jwt_key_2026'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   dbPath: process.env.DB_PATH || path.join(__dirname, '../../data/inventory.db'),
   uploadDir: process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'),
