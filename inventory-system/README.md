@@ -85,7 +85,7 @@ Or individually:
 
 ```bash
 npm run lint                    # ESLint across backend and frontend
-npm test                        # 48 backend unit + API tests
+npm test                        # 54 backend unit + API tests
 npm run i18n:check              # reports untranslated / missing UI strings
 npm run build                   # production frontend build
 cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities

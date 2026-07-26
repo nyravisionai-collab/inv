@@ -26,3 +26,6 @@ backend/data/
 backend/backups/
 *.db.tmp
 .pids
+
+# Generated at install time from the @fontsource package
+backend/assets/fonts/

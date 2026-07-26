@@ -4,7 +4,7 @@
 
 | માપદંડ | પહેલાં | પછી |
 |---|---|---|
-| ટેસ્ટ | 10 પાસ | **48 પાસ** (26 unit + 22 API) |
+| ટેસ્ટ | 10 પાસ | **54 પાસ** (32 unit + 22 API) |
 | મુખ્ય JS bundle | 852 KB (gzip 235) | **332 KB** (gzip 106) |
 | Production vulnerabilities | 1 high | **0** |
 | ESLint | કૉન્ફિગ જ નહોતું | **0 errors** (backend + frontend) |
@@ -148,7 +148,12 @@ Intra/inter-state પ્રમાણે વિભાજન, rate-wise સમર�
 
 - **404 હેન્ડલર** હવે error handler **પહેલાં** રજિસ્ટર થાય છે.
 - **`.env` એક જ સ્રોત** — `server.js` અને `START.sh` બંને હવે `.env.example` કૉપી કરે છે; `SERVE_FRONTEND` પણ config થી.
-- **PDF માં ગુજરાતી** — `utils/pdf.js` Noto Sans Gujarati (npm dependency) રજિસ્ટર કરે છે. ફોન્ટ ન મળે તો Helvetica + `Rs.` પર graceful fallback. પહેલાં ગુજરાતી બિલમાં દેખાતું જ નહોતું અને ₹ પણ નહીં.
+- **PDF માં ગુજરાતી** — આ ધાર્યા કરતાં ઘણું ઊંડું નીકળ્યું; ત્રણ અલગ સમસ્યાઓ હતી:
+  1. **WOFF એમ્બેડ થતું નથી** — PDFKit WOFF નું per-table compression ખોલી શકતું નથી, બધા glyphs ખાલી ચોરસ આવતા. `scripts/build-fonts.js` (postinstall પર ચાલે) WOFF ને TTF માં ડિકોડ કરે છે — કોઈ નવી dependency વગર, Node ના `zlib` થી.
+  2. **Subsets અધૂરા છે** — Noto નું "gujarati" subset માં ગુજરાતી + ₹ છે પણ લેટિન અક્ષરો/અંકો નથી; "latin" subset માં ઊલટું. એટલે `બિલ INV-001 ₹250` જેવી લાઇન કોઈ એક ફોન્ટથી લખી શકાતી નથી. `writeText()` લખાણને લિપિ પ્રમાણે ટુકડામાં વહેંચીને દરેકને યોગ્ય ફોન્ટમાં લખે છે.
+  3. **નામની અથડામણ** — બંને subsets નું internal PostScript name એકસરખું (`NotoSansGujarati-Regular`) હોવાથી PDF viewer બીજાને પહેલાની નકલ ગણીને ગુજરાતી લખાણ લેટિન glyphs થી દોરતું. બિલ્ડ સ્ક્રિપ્ટ હવે `name` ટેબલ ફરી લખીને દરેકને અલગ નામ આપે છે.
+
+  દરેક તબક્કો PDF રેન્ડર કરીને દૃષ્ટિથી ચકાસ્યો. ફોન્ટ ન મળે તો Helvetica + `Rs.` પર graceful fallback રહે છે.
 - **SVG અપલોડ બંધ** — inline script લઈ જઈ શકે અને `/uploads` થી પાછું સર્વ થાય છે.
 - **Viewport** — `user-scalable=no` કાઢ્યું; વૃદ્ધ વપરાશકર્તાઓ હવે ઝૂમ કરી શકે.
 - **Google Fonts કાઢ્યું** — એપ ઓફલાઇન છે પણ ફોન્ટ નેટવર્કથી આવતો હતો; હવે platform font stack.
@@ -166,7 +171,7 @@ cd inventory-system && npm run verify
 
 ```
 backend   ESLint  0 errors
-backend   tests   48 pass / 0 fail
+backend   tests   54 pass / 0 fail
 backend   audit   0 vulnerabilities (production)
 frontend  ESLint  0 errors
 frontend  i18n    passed (352 keys, both languages)

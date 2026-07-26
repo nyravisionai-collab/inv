@@ -353,8 +353,9 @@ function pdfInvoice(req, res) {
     const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
     const company = db.prepare('SELECT * FROM company_settings WHERE id = 1').get() || {};
 
-    // Unicode-capable document so Gujarati text and the rupee sign both render.
-    const { doc, regularFont, boldFont, unicode } = createPdfDocument();
+    // writeText picks the right font per script, so Gujarati company names,
+    // customer names and product names all render alongside Latin text.
+    const { doc, writeText, setBold, unicode } = createPdfDocument();
     const symbol = company.currency_symbol || '\u20B9';
     const money = (n) => pdfMoney(n, symbol, unicode);
 
@@ -362,79 +363,92 @@ function pdfInvoice(req, res) {
     res.setHeader('Content-Disposition', `inline; filename="${sale.invoice_number}.pdf"`);
     doc.pipe(res);
 
-    doc.font(boldFont).fontSize(20).text(company.company_name || 'My Business', { align: 'left' });
-    doc.font(regularFont).fontSize(10).fillColor('#666');
-    if (company.address) doc.text(company.address);
-    if (company.phone) doc.text(`Phone: ${company.phone}`);
-    if (company.gstin) doc.text(`GSTIN: ${company.gstin}`);
+    setBold(true);
+    doc.fontSize(20);
+    writeText(company.company_name || 'My Business', { align: 'left' });
+    setBold(false);
+    doc.fontSize(10).fillColor('#666');
+    if (company.address) writeText(company.address);
+    if (company.phone) writeText(`Phone: ${company.phone}`);
+    if (company.gstin) writeText(`GSTIN: ${company.gstin}`);
     doc.fillColor('#000');
 
     doc.moveDown();
     const heading = sale.invoice_type === 'sale_return'
       ? 'CREDIT NOTE'
       : sale.invoice_type === 'estimate' ? 'ESTIMATE' : 'TAX INVOICE';
-    doc.font(boldFont).fontSize(16).text(heading, { align: 'right' });
-    doc.font(regularFont).fontSize(10);
-    doc.text(`No: ${sale.invoice_number}`, { align: 'right' });
-    doc.text(`Date: ${sale.invoice_date}`, { align: 'right' });
+    setBold(true);
+    doc.fontSize(16);
+    writeText(heading, { align: 'right' });
+    setBold(false);
+    doc.fontSize(10);
+    writeText(`No: ${sale.invoice_number}`, { align: 'right' });
+    writeText(`Date: ${sale.invoice_date}`, { align: 'right' });
 
     doc.moveDown();
-    doc.font(boldFont).fontSize(12).text('Bill To:');
-    doc.font(regularFont).fontSize(10);
-    doc.text(sale.customer_name || 'Walk-in Customer');
-    if (sale.customer_address) doc.text(sale.customer_address);
-    if (sale.customer_phone) doc.text(`Phone: ${sale.customer_phone}`);
-    if (sale.customer_gstin) doc.text(`GSTIN: ${sale.customer_gstin}`);
+    setBold(true);
+    doc.fontSize(12);
+    writeText('Bill To:');
+    setBold(false);
+    doc.fontSize(10);
+    writeText(sale.customer_name || 'Walk-in Customer');
+    if (sale.customer_address) writeText(sale.customer_address);
+    if (sale.customer_phone) writeText(`Phone: ${sale.customer_phone}`);
+    if (sale.customer_gstin) writeText(`GSTIN: ${sale.customer_gstin}`);
 
     doc.moveDown();
     const tableTop = doc.y;
-    doc.font(boldFont).fontSize(9);
-    doc.text('#', 50, tableTop, { width: 30 });
-    doc.text('Item', 80, tableTop, { width: 180 });
-    doc.text('Qty', 260, tableTop, { width: 40 });
-    doc.text('Price', 300, tableTop, { width: 60 });
-    doc.text('Tax', 360, tableTop, { width: 50 });
-    doc.text('Total', 420, tableTop, { width: 80, align: 'right' });
+    setBold(true);
+    doc.fontSize(9);
+    writeText('#', { x: 50, y: tableTop, width: 30 });
+    writeText('Item', { x: 80, y: tableTop, width: 180 });
+    writeText('Qty', { x: 260, y: tableTop, width: 40 });
+    writeText('Price', { x: 300, y: tableTop, width: 60 });
+    writeText('Tax', { x: 360, y: tableTop, width: 50 });
+    writeText('Total', { x: 420, y: tableTop, width: 80, align: 'right' });
     doc.moveTo(50, tableTop + 15).lineTo(545, tableTop + 15).stroke();
 
     let y = tableTop + 25;
-    doc.font(regularFont);
+    setBold(false);
     items.forEach((item, i) => {
       if (y > 700) { doc.addPage(); y = 50; }
-      doc.text(String(i + 1), 50, y, { width: 30 });
-      doc.text(item.product_name, 80, y, { width: 180 });
-      doc.text(String(item.quantity), 260, y, { width: 40 });
-      doc.text(Number(item.unit_price).toFixed(2), 300, y, { width: 60 });
-      doc.text(Number(item.tax_amount).toFixed(2), 360, y, { width: 50 });
-      doc.text(Number(item.total).toFixed(2), 420, y, { width: 80, align: 'right' });
+      writeText(String(i + 1), { x: 50, y, width: 30 });
+      writeText(item.product_name, { x: 80, y, width: 180 });
+      writeText(String(item.quantity), { x: 260, y, width: 40 });
+      writeText(Number(item.unit_price).toFixed(2), { x: 300, y, width: 60 });
+      writeText(Number(item.tax_amount).toFixed(2), { x: 360, y, width: 50 });
+      writeText(Number(item.total).toFixed(2), { x: 420, y, width: 80, align: 'right' });
       y += 20;
     });
 
     doc.moveTo(50, y).lineTo(545, y).stroke();
     y += 15;
-    doc.text(`Subtotal: ${money(sale.subtotal)}`, 350, y, { align: 'right' });
+    const totalOpts = (yy) => ({ x: 350, y: yy, width: 195, align: 'right' });
+    writeText(`Subtotal: ${money(sale.subtotal)}`, totalOpts(y));
     y += 15;
     if (sale.discount_amount) {
-      doc.text(`Discount: ${money(sale.discount_amount)}`, 350, y, { align: 'right' });
+      writeText(`Discount: ${money(sale.discount_amount)}`, totalOpts(y));
       y += 15;
     }
-    doc.text(`Tax: ${money(sale.tax_amount)}`, 350, y, { align: 'right' });
+    writeText(`Tax: ${money(sale.tax_amount)}`, totalOpts(y));
     y += 15;
-    doc.font(boldFont).fontSize(12);
-    doc.text(`Grand Total: ${money(sale.grand_total)}`, 350, y, { align: 'right' });
+    setBold(true);
+    doc.fontSize(12);
+    writeText(`Grand Total: ${money(sale.grand_total)}`, totalOpts(y));
+    y += 18;
+    setBold(false);
+    doc.fontSize(10);
+    writeText(`Paid: ${money(sale.paid_amount)}`, totalOpts(y));
     y += 15;
-    doc.font(regularFont).fontSize(10);
-    doc.text(`Paid: ${money(sale.paid_amount)}`, 350, y, { align: 'right' });
-    y += 15;
-    doc.text(`Balance: ${money(sale.balance_amount)}`, 350, y, { align: 'right' });
+    writeText(`Balance: ${money(sale.balance_amount)}`, totalOpts(y));
 
     if (sale.notes) {
       y += 30;
-      doc.text(`Notes: ${sale.notes}`, 50, y);
+      writeText(`Notes: ${sale.notes}`, { x: 50, y, width: 495 });
     }
     if (company.invoice_terms || sale.terms) {
       y += 20;
-      doc.text(`Terms: ${sale.terms || company.invoice_terms}`, 50, y);
+      writeText(`Terms: ${sale.terms || company.invoice_terms}`, { x: 50, y, width: 495 });
     }
 
     doc.end();

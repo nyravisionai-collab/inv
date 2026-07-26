@@ -13,11 +13,33 @@ function negativeStockAllowed() {
   }
 }
 
+/**
+ * Stock available for a product in a warehouse.
+ *
+ * Older databases (and products whose opening stock was recorded before
+ * per-warehouse tracking existed) hold a figure on `products.current_stock`
+ * with no matching `warehouse_stock` row. Treating that as zero would block
+ * every sale of existing inventory, so fall back to the product-level total
+ * when the product has no warehouse rows at all.
+ */
 function availableStock(productId, warehouseId) {
   const row = db
     .prepare('SELECT COALESCE(quantity, 0) as q FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ?')
     .get(productId, warehouseId);
-  return row ? Number(row.q) : 0;
+  if (row) return Number(row.q);
+
+  const tracked = db
+    .prepare('SELECT COUNT(*) as c FROM warehouse_stock WHERE product_id = ?')
+    .get(productId);
+  if (tracked && tracked.c > 0) {
+    // The product is warehouse-tracked, just not stocked in this one.
+    return 0;
+  }
+
+  const product = db
+    .prepare('SELECT COALESCE(current_stock, 0) as q FROM products WHERE id = ?')
+    .get(productId);
+  return product ? Number(product.q) : 0;
 }
 
 /**
@@ -72,7 +94,14 @@ function adjustWarehouseStock(productId, warehouseId, qtyDelta) {
     const newQty = round2(existing.quantity + qtyDelta);
     db.prepare("UPDATE warehouse_stock SET quantity = ?, updated_at = ? WHERE id = ?").run(newQty, now(), existing.id);
   } else {
-    db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)').run(productId, warehouseId, round2(qtyDelta));
+    // First warehouse row for this product: seed it with any legacy
+    // product-level stock so the migration does not silently lose inventory.
+    const tracked = db.prepare('SELECT COUNT(*) as c FROM warehouse_stock WHERE product_id = ?').get(productId);
+    const legacy = tracked && tracked.c === 0
+      ? Number(db.prepare('SELECT COALESCE(current_stock, 0) as q FROM products WHERE id = ?').get(productId)?.q || 0)
+      : 0;
+    db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)')
+      .run(productId, warehouseId, round2(legacy + qtyDelta));
   }
   return updateProductStock(productId);
 }

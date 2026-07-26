@@ -233,3 +233,59 @@ describe('xlsx', () => {
     assert.throws(() => readSheet(Buffer.from('not a zip at all')), /valid XLSX/);
   });
 });
+
+describe('pdf', () => {
+  const { createPdfDocument, pdfMoney, splitByScript } = require('../src/utils/pdf');
+
+  it('splits mixed Gujarati and Latin into runs', () => {
+    const runs = splitByScript('બિલ INV-001 ₹250');
+    assert.ok(runs.length >= 3);
+    assert.strictEqual(runs[0].gujarati, true);
+    assert.ok(runs.some((r) => !r.gujarati && r.text.includes('INV')));
+    // The rupee sign only exists in the Gujarati subset.
+    assert.ok(runs.some((r) => r.gujarati && r.text.includes('₹')));
+  });
+
+  it('treats pure ASCII as a single Latin run', () => {
+    const runs = splitByScript('Invoice 12345');
+    assert.strictEqual(runs.length, 1);
+    assert.strictEqual(runs[0].gujarati, false);
+  });
+
+  it('handles empty input', () => {
+    assert.deepStrictEqual(splitByScript(''), []);
+    assert.deepStrictEqual(splitByScript(null), []);
+  });
+
+  it('registers distinct fonts so both scripts can render', () => {
+    const { doc, unicode, regularFont, gujaratiFont } = createPdfDocument();
+    if (unicode) {
+      assert.notStrictEqual(regularFont, gujaratiFont,
+        'Latin and Gujarati must be separate fonts');
+    }
+    doc.end();
+  });
+
+  it('produces a PDF containing both scripts', (t, done) => {
+    const { doc, writeText, unicode } = createPdfDocument();
+    if (!unicode) return done();
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => {
+      const pdf = Buffer.concat(chunks);
+      assert.ok(pdf.slice(0, 5).toString() === '%PDF-', 'must be a PDF');
+      const text = pdf.toString('latin1');
+      // Both subsets embedded under distinct names.
+      assert.ok(text.includes('gujarati'), 'Gujarati font must be embedded');
+      assert.ok(text.includes('latin'), 'Latin font must be embedded');
+      done();
+    });
+    writeText('બિલ INV-001 ₹250.00');
+    doc.end();
+  });
+
+  it('falls back to Rs. when unicode fonts are unavailable', () => {
+    assert.strictEqual(pdfMoney(10, '₹', true), '₹10.00');
+    assert.strictEqual(pdfMoney(10, '₹', false), 'Rs.10.00');
+  });
+});

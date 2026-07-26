@@ -33,6 +33,40 @@ function applyAdditiveColumns() {
   }
 }
 
+/**
+ * Seed warehouse_stock for products that only ever had a product-level total.
+ *
+ * Stock validation works per warehouse, so a product carrying `current_stock`
+ * with no `warehouse_stock` row would otherwise look out of stock and block
+ * every sale on an upgraded database.
+ */
+function backfillWarehouseStock() {
+  try {
+    const warehouse = db.prepare(
+      'SELECT id FROM warehouses WHERE is_default = 1 AND is_active = 1 LIMIT 1'
+    ).get() || db.prepare('SELECT id FROM warehouses WHERE is_active = 1 LIMIT 1').get();
+    if (!warehouse) return;
+
+    const orphans = db.prepare(`
+      SELECT id, COALESCE(current_stock, 0) as qty
+      FROM products
+      WHERE COALESCE(is_service, 0) = 0
+        AND COALESCE(current_stock, 0) <> 0
+        AND id NOT IN (SELECT DISTINCT product_id FROM warehouse_stock)
+    `).all();
+
+    if (!orphans.length) return;
+
+    const insert = db.prepare(
+      'INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)'
+    );
+    for (const p of orphans) insert.run(p.id, warehouse.id, p.qty);
+    console.log(`  + seeded warehouse stock for ${orphans.length} product(s)`);
+  } catch (err) {
+    console.warn(`  ! warehouse stock backfill skipped: ${err.message}`);
+  }
+}
+
 /** Backfill cost_price for rows written before the column existed. */
 function backfillCostPrice() {
   try {
@@ -71,6 +105,7 @@ async function migrate() {
       // ALTER TABLE on an already-correct schema is a harmless no-op.
       applyAdditiveColumns();
       backfillCostPrice();
+      backfillWarehouseStock();
     } catch (err) {
       try {
         db.exec('ROLLBACK');
