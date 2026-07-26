@@ -17,6 +17,11 @@ const {
 } = require('../src/utils/validate');
 const { redact, stripTags, sanitizeDeep, csvCell } = require('../src/utils/sanitize');
 const { readSheet, writeSheet } = require('../src/utils/xlsx');
+const {
+  normalizeIp,
+  isLocalOrLanAddress,
+  getEffectiveClientIp,
+} = require('../src/middleware/networkAccess');
 
 describe('helpers: money maths', () => {
   it('round2 handles floating point drift', () => {
@@ -199,6 +204,34 @@ describe('sanitize', () => {
     assert.strictEqual(csvCell('@SUM'), "'@SUM");
     assert.strictEqual(csvCell('normal'), 'normal');
     assert.strictEqual(csvCell(42), 42);
+  });
+});
+
+describe('network access guard', () => {
+  it('normalizes IPv4-mapped IPv6 client addresses', () => {
+    assert.strictEqual(normalizeIp('::ffff:192.168.1.15'), '192.168.1.15');
+    assert.strictEqual(normalizeIp('[fe80::1%wlan0]'), 'fe80::1');
+  });
+
+  it('allows only local and private LAN ranges', () => {
+    ['127.0.0.1', '10.0.0.5', '172.16.1.2', '172.31.255.1', '192.168.1.50', '169.254.1.1', '100.64.1.1', '::1', 'fd12::1', 'fe80::1'].forEach((ip) => {
+      assert.strictEqual(isLocalOrLanAddress(ip), true, `${ip} should be allowed`);
+    });
+    ['8.8.8.8', '1.1.1.1', '172.32.0.1', '198.51.100.10', '2001:4860:4860::8888'].forEach((ip) => {
+      assert.strictEqual(isLocalOrLanAddress(ip), false, `${ip} should be blocked`);
+    });
+  });
+
+  it('trusts forwarded client IPs only from a loopback proxy', () => {
+    assert.strictEqual(getEffectiveClientIp({
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { 'x-forwarded-for': '8.8.8.8, 127.0.0.1' },
+    }), '8.8.8.8');
+
+    assert.strictEqual(getEffectiveClientIp({
+      socket: { remoteAddress: '8.8.8.8' },
+      headers: { 'x-forwarded-for': '192.168.1.5' },
+    }), '8.8.8.8');
   });
 });
 
