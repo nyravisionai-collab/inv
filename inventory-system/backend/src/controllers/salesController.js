@@ -4,7 +4,14 @@ const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = r
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
-const PDFDocument = require('pdfkit');
+const {
+  requireArray, validateLineItem, validateDocumentTotals,
+  oneOf, optionalDate, pageParams,
+} = require('../utils/validate');
+const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+
+const SALE_TYPES = ['sale', 'estimate', 'sale_order', 'delivery_challan', 'sale_return', 'pos'];
+const SALE_STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'converted'];
 
 function list(req, res) {
   try {
@@ -20,7 +27,7 @@ function list(req, res) {
     if (from_date) { where += ' AND s.invoice_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND s.invoice_date <= ?'; params.push(to_date); }
     if (search) {
-      where += ' AND (s.invoice_number LIKE ? OR c.name LIKE ? OR c.phone LIKE ?)';
+      where += " AND (s.invoice_number LIKE ? ESCAPE '!' OR c.name LIKE ? ESCAPE '!' OR c.phone LIKE ? ESCAPE '!')";
       const s = `%${sanitizeLike(search)}%`;
       params.push(s, s, s);
     }
@@ -29,8 +36,7 @@ function list(req, res) {
       SELECT COUNT(*) as c FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${where}
     `).get(...params).c;
 
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
       SELECT s.*, c.name as customer_name, c.phone as customer_phone,
@@ -43,7 +49,7 @@ function list(req, res) {
       LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
 
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -61,7 +67,7 @@ function getById(req, res) {
       LEFT JOIN users u ON u.id = s.created_by
       WHERE s.id = ?
     `).get(req.params.id);
-    if (!sale) return error(res, 'Sale not found', 404);
+    if (!sale) return error(res, 'Sale not found', 404, null, 'ERR_NOT_FOUND');
 
     sale.items = db.prepare(`
       SELECT si.*, p.sku, p.barcode, un.short_name as unit_name
@@ -79,121 +85,157 @@ function getById(req, res) {
   }
 }
 
-function create(req, res) {
-  const createTxn = db.transaction(() => {
-    const {
-      invoice_type = 'sale', customer_id, invoice_date, due_date, reference_number,
-      items = [], discount_type = 'amount', discount_value = 0,
-      shipping_charges = 0, other_charges = 0, round_off = 0,
-      notes, terms, warehouse_id, paid_amount = 0, payment_mode = 'cash',
-      bank_account_id, status = 'completed',
-    } = req.body;
+/**
+ * Core sale-creation logic, free of HTTP concerns.
+ *
+ * Callers are responsible for wrapping this in a transaction, which lets
+ * `convert()` mark the source document and create the target document
+ * atomically instead of leaving a half-converted record behind.
+ */
+function createSaleCore(body, userId) {
+  const invoiceType = oneOf(body.invoice_type, SALE_TYPES, 'Invoice type', 'sale');
+  const status = oneOf(body.status, SALE_STATUSES, 'Status', 'completed');
+  const items = requireArray(body.items, 'Items');
+  const money = validateDocumentTotals(body);
+  const date = optionalDate(body.invoice_date, 'Invoice date') || today();
+  const dueDate = optionalDate(body.due_date, 'Due date');
 
-    if (!items.length) throw new Error('At least one item is required');
+  const wh = body.warehouse_id || stockService.getDefaultWarehouse()?.id;
 
-    const invoiceNumber = numberService.nextNumber(invoice_type);
-    const date = invoice_date || today();
-    const wh = warehouse_id || stockService.getDefaultWarehouse()?.id;
-
-    const processedItems = items.map((item) => {
-      const calc = calcLineTotal(item.quantity, item.unit_price, item.discount_type || 'amount', item.discount_value || 0, item.tax_rate || 0);
-      return {
-        product_id: item.product_id || null,
-        product_name: item.product_name || item.name,
-        hsn_code: item.hsn_code || null,
-        batch_id: item.batch_id || null,
-        quantity: Number(item.quantity) || 1,
-        unit_id: item.unit_id || null,
-        unit_price: Number(item.unit_price) || 0,
-        discount_type: item.discount_type || 'amount',
-        discount_value: Number(item.discount_value) || 0,
-        discount_amount: calc.discountAmount,
-        tax_rate: Number(item.tax_rate) || 0,
-        tax_amount: calc.taxAmount,
-        total: calc.total,
-      };
-    });
-
-    const totals = calcInvoiceTotals(processedItems, discount_type, discount_value, shipping_charges, other_charges, round_off);
-    const paid = Number(paid_amount) || 0;
-    const balance = round2(totals.grandTotal - paid);
-    let paymentStatus = 'unpaid';
-    if (paid >= totals.grandTotal) paymentStatus = 'paid';
-    else if (paid > 0) paymentStatus = 'partial';
-
-    const result = db.prepare(`
-      INSERT INTO sales (
-        invoice_number, invoice_type, customer_id, invoice_date, due_date, reference_number,
-        status, payment_status, subtotal, discount_type, discount_value, discount_amount,
-        tax_amount, shipping_charges, other_charges, round_off, grand_total, paid_amount,
-        balance_amount, notes, terms, warehouse_id, created_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      invoiceNumber, invoice_type, customer_id || null, date, due_date || null, reference_number || null,
-      status, paymentStatus, totals.subtotal, discount_type, Number(discount_value) || 0, totals.discountAmount,
-      totals.taxAmount, Number(shipping_charges) || 0, Number(other_charges) || 0, Number(round_off) || 0,
-      totals.grandTotal, paid, balance, notes || null, terms || null, wh || null, req.user.id
-    );
-
-    const saleId = result.lastInsertRowid;
-    const insertItem = db.prepare(`
-      INSERT INTO sale_items (sale_id, product_id, product_name, hsn_code, batch_id, quantity, unit_id, unit_price, discount_type, discount_value, discount_amount, tax_rate, tax_amount, total)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `);
-
-    for (const item of processedItems) {
-      insertItem.run(saleId, item.product_id, item.product_name, item.hsn_code, item.batch_id, item.quantity, item.unit_id, item.unit_price, item.discount_type, item.discount_value, item.discount_amount, item.tax_rate, item.tax_amount, item.total);
-
-      // Stock movement for completed sales/pos
-      if (status === 'completed' && item.product_id && ['sale', 'pos'].includes(invoice_type)) {
-        const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
-        if (prod && !prod.is_service) stockService.reduceStock(item.product_id, item.quantity, wh);
-      }
-      // Sale return increases stock
-      if (status === 'completed' && item.product_id && invoice_type === 'sale_return') {
-        const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
-        if (prod && !prod.is_service) stockService.increaseStock(item.product_id, item.quantity, wh);
-      }
+  const processedItems = items.map((item, index) => {
+    // Inherit the product's configured tax mode when the client didn't specify
+    // one, so MRP-inclusive products are priced correctly from POS too.
+    if (item.tax_type === undefined && item.product_id) {
+      const prodTax = db.prepare('SELECT tax_type FROM products WHERE id = ?').get(item.product_id);
+      if (prodTax && prodTax.tax_type) item = { ...item, tax_type: prodTax.tax_type };
     }
-
-    // Record payment if paid
-    if (paid > 0 && status === 'completed') {
-      const payNum = numberService.nextNumber('payment_in');
-      db.prepare(`
-        INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, sale_id, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-      `).run(payNum, 'payment_in', 'customer', customer_id || null, date, paid, payment_mode, bank_account_id || null, saleId, req.user.id);
-
-      if (bank_account_id) {
-        partyService.updateBankBalance(bank_account_id, paid, 'credit');
-      } else {
-        const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
-        if (cashAcc) partyService.updateBankBalance(cashAcc.id, paid, 'credit');
-      }
-    }
-
-    if (customer_id) partyService.updateCustomerBalance(customer_id);
-
-    return db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+    const v = validateLineItem(item, index);
+    const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
+    // Snapshot the cost at the time of sale so historical profit reports stay
+    // stable even when the product's purchase price changes later.
+    const costRow = item.product_id
+      ? db.prepare('SELECT purchase_price FROM products WHERE id = ?').get(item.product_id)
+      : null;
+    return {
+      product_id: item.product_id || null,
+      product_name: item.product_name || item.name,
+      hsn_code: item.hsn_code || null,
+      batch_id: item.batch_id || null,
+      quantity: v.quantity,
+      unit_id: item.unit_id || null,
+      unit_price: v.unitPrice,
+      cost_price: costRow ? Number(costRow.purchase_price) || 0 : 0,
+      discount_type: v.discountType,
+      discount_value: v.discountValue,
+      discount_amount: calc.discountAmount,
+      tax_rate: v.taxRate,
+      tax_amount: calc.taxAmount,
+      total: calc.total,
+    };
   });
 
+  // Reject the whole document up-front if stock is insufficient, so we never
+  // write a sale that drives inventory negative.
+  const reducesStock = status === 'completed' && ['sale', 'pos'].includes(invoiceType);
+  if (reducesStock) {
+    stockService.assertItemsAvailable(processedItems, wh);
+  }
+
+  const totals = calcInvoiceTotals(
+    processedItems, money.discountType, money.discountValue,
+    money.shippingCharges, money.otherCharges, money.roundOff
+  );
+  const paid = money.paidAmount;
+  const balance = round2(totals.grandTotal - paid);
+  let paymentStatus = 'unpaid';
+  if (paid >= totals.grandTotal) paymentStatus = 'paid';
+  else if (paid > 0) paymentStatus = 'partial';
+
+  const invoiceNumber = numberService.nextNumber(invoiceType);
+
+  const result = db.prepare(`
+    INSERT INTO sales (
+      invoice_number, invoice_type, customer_id, invoice_date, due_date, reference_number,
+      status, payment_status, subtotal, discount_type, discount_value, discount_amount,
+      tax_amount, shipping_charges, other_charges, round_off, grand_total, paid_amount,
+      balance_amount, notes, terms, warehouse_id, created_by
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    invoiceNumber, invoiceType, body.customer_id || null, date, dueDate, body.reference_number || null,
+    status, paymentStatus, totals.subtotal, money.discountType, money.discountValue, totals.discountAmount,
+    totals.taxAmount, money.shippingCharges, money.otherCharges, money.roundOff,
+    totals.grandTotal, paid, balance, body.notes || null, body.terms || null, wh || null, userId
+  );
+
+  const saleId = result.lastInsertRowid;
+  const insertItem = db.prepare(`
+    INSERT INTO sale_items (sale_id, product_id, product_name, hsn_code, batch_id, quantity, unit_id, unit_price, cost_price, discount_type, discount_value, discount_amount, tax_rate, tax_amount, total)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  for (const item of processedItems) {
+    insertItem.run(
+      saleId, item.product_id, item.product_name, item.hsn_code, item.batch_id,
+      item.quantity, item.unit_id, item.unit_price, item.cost_price, item.discount_type,
+      item.discount_value, item.discount_amount, item.tax_rate, item.tax_amount, item.total
+    );
+
+    if (status === 'completed' && item.product_id) {
+      const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
+      if (prod && !prod.is_service) {
+        if (['sale', 'pos'].includes(invoiceType)) {
+          stockService.reduceStock(item.product_id, item.quantity, wh);
+        } else if (invoiceType === 'sale_return') {
+          stockService.increaseStock(item.product_id, item.quantity, wh);
+        }
+      }
+    }
+  }
+
+  // Record payment if paid
+  if (paid > 0 && status === 'completed') {
+    const payNum = numberService.nextNumber('payment_in');
+    const paymentMode = body.payment_mode || 'cash';
+    db.prepare(`
+      INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, sale_id, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run(payNum, 'payment_in', 'customer', body.customer_id || null, date, paid, paymentMode, body.bank_account_id || null, saleId, userId);
+
+    if (body.bank_account_id) {
+      partyService.updateBankBalance(body.bank_account_id, paid, 'credit');
+    } else {
+      const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
+      if (cashAcc) partyService.updateBankBalance(cashAcc.id, paid, 'credit');
+    }
+  }
+
+  if (body.customer_id) partyService.updateCustomerBalance(body.customer_id);
+
+  return saleId;
+}
+
+function loadFullSale(saleId) {
+  const full = db.prepare(`
+    SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
+  `).get(saleId);
+  full.items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId);
+  return full;
+}
+
+function create(req, res) {
   try {
-    const sale = createTxn();
-    const full = db.prepare(`
-      SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
-    `).get(sale.id);
-    full.items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
-    return success(res, full, 'Sale created', 201);
+    const saleId = db.transaction(() => createSaleCore(req.body, req.user.id))();
+    return success(res, loadFullSale(saleId), 'Sale created', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
 function update(req, res) {
   try {
     const existing = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
-    if (!existing) return error(res, 'Sale not found', 404);
-    if (existing.status === 'cancelled') return error(res, 'Cannot update cancelled sale');
+    if (!existing) return error(res, 'Sale not found', 404, null, 'ERR_NOT_FOUND');
+    if (existing.status === 'cancelled') return error(res, 'Cannot update cancelled sale', 400, null, 'ERR_CANCELLED');
 
     const b = req.body;
     db.prepare(`
@@ -215,8 +257,8 @@ function update(req, res) {
 function cancel(req, res) {
   const txn = db.transaction(() => {
     const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
-    if (!sale) throw new Error('Sale not found');
-    if (sale.status === 'cancelled') throw new Error('Already cancelled');
+    if (!sale) throw Object.assign(new Error('Sale not found'), { status: 404, code: 'ERR_NOT_FOUND' });
+    if (sale.status === 'cancelled') throw Object.assign(new Error('Already cancelled'), { status: 400, code: 'ERR_ALREADY_CANCELLED' });
 
     // Reverse stock
     if (sale.status === 'completed') {
@@ -242,23 +284,29 @@ function cancel(req, res) {
     txn();
     return success(res, null, 'Sale cancelled');
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
 function convert(req, res) {
   try {
     const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
-    if (!sale) return error(res, 'Document not found', 404);
-    const { to_type } = req.body;
-    if (!to_type) return error(res, 'Target type required');
+    if (!sale) return error(res, 'Document not found', 404, null, 'ERR_NOT_FOUND');
+    if (sale.status === 'converted') {
+      return error(res, 'Document has already been converted', 400, null, 'ERR_ALREADY_CONVERTED');
+    }
+    if (sale.status === 'cancelled') {
+      return error(res, 'Cannot convert a cancelled document', 400, null, 'ERR_CANCELLED');
+    }
+
+    const toType = oneOf(req.body.to_type, SALE_TYPES, 'Target type');
 
     const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
-    req.body = {
-      invoice_type: to_type,
+    const payload = {
+      invoice_type: toType,
       customer_id: sale.customer_id,
       invoice_date: today(),
-      items: items.map(i => ({
+      items: items.map((i) => ({
         product_id: i.product_id,
         product_name: i.product_name,
         hsn_code: i.hsn_code,
@@ -278,10 +326,18 @@ function convert(req, res) {
       status: 'completed',
     };
 
-    db.prepare("UPDATE sales SET status = 'converted', updated_at = ? WHERE id = ?").run(now(), sale.id);
-    return create(req, res);
+    // Source update and target creation share one transaction: if creation
+    // fails (e.g. insufficient stock) the source stays in its original state.
+    const newId = db.transaction(() => {
+      const createdId = createSaleCore(payload, req.user.id);
+      db.prepare("UPDATE sales SET status = 'converted', updated_at = ? WHERE id = ?").run(now(), sale.id);
+      db.prepare('UPDATE sales SET converted_from = ? WHERE id = ?').run(sale.id, createdId);
+      return createdId;
+    })();
+
+    return success(res, loadFullSale(newId), 'Document converted', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -292,88 +348,113 @@ function pdfInvoice(req, res) {
         c.gstin as customer_gstin, c.city as customer_city, c.state as customer_state
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
     `).get(req.params.id);
-    if (!sale) return error(res, 'Sale not found', 404);
+    if (!sale) return error(res, 'Sale not found', 404, null, 'ERR_NOT_FOUND');
 
     const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
-    const company = db.prepare('SELECT * FROM company_settings WHERE id = 1').get();
+    const company = db.prepare('SELECT * FROM company_settings WHERE id = 1').get() || {};
 
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    // writeText picks the right font per script, so Gujarati company names,
+    // customer names and product names all render alongside Latin text.
+    const { doc, writeText, setBold, unicode } = createPdfDocument();
+    const symbol = company.currency_symbol || '\u20B9';
+    const money = (n) => pdfMoney(n, symbol, unicode);
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${sale.invoice_number}.pdf"`);
     doc.pipe(res);
 
-    doc.fontSize(20).text(company.company_name || 'My Business', { align: 'left' });
+    setBold(true);
+    doc.fontSize(20);
+    writeText(company.company_name || 'My Business', { align: 'left' });
+    setBold(false);
     doc.fontSize(10).fillColor('#666');
-    if (company.address) doc.text(company.address);
-    if (company.phone) doc.text(`Phone: ${company.phone}`);
-    if (company.gstin) doc.text(`GSTIN: ${company.gstin}`);
+    if (company.address) writeText(company.address);
+    if (company.phone) writeText(`Phone: ${company.phone}`);
+    if (company.gstin) writeText(`GSTIN: ${company.gstin}`);
     doc.fillColor('#000');
 
     doc.moveDown();
-    doc.fontSize(16).text(sale.invoice_type === 'sale_return' ? 'CREDIT NOTE' : sale.invoice_type === 'estimate' ? 'ESTIMATE' : 'TAX INVOICE', { align: 'right' });
+    const heading = sale.invoice_type === 'sale_return'
+      ? 'CREDIT NOTE'
+      : sale.invoice_type === 'estimate' ? 'ESTIMATE' : 'TAX INVOICE';
+    setBold(true);
+    doc.fontSize(16);
+    writeText(heading, { align: 'right' });
+    setBold(false);
     doc.fontSize(10);
-    doc.text(`No: ${sale.invoice_number}`, { align: 'right' });
-    doc.text(`Date: ${sale.invoice_date}`, { align: 'right' });
+    writeText(`No: ${sale.invoice_number}`, { align: 'right' });
+    writeText(`Date: ${sale.invoice_date}`, { align: 'right' });
 
     doc.moveDown();
-    doc.fontSize(12).text('Bill To:', { underline: true });
+    setBold(true);
+    doc.fontSize(12);
+    writeText('Bill To:');
+    setBold(false);
     doc.fontSize(10);
-    doc.text(sale.customer_name || 'Walk-in Customer');
-    if (sale.customer_address) doc.text(sale.customer_address);
-    if (sale.customer_phone) doc.text(`Phone: ${sale.customer_phone}`);
-    if (sale.customer_gstin) doc.text(`GSTIN: ${sale.customer_gstin}`);
+    writeText(sale.customer_name || 'Walk-in Customer');
+    if (sale.customer_address) writeText(sale.customer_address);
+    if (sale.customer_phone) writeText(`Phone: ${sale.customer_phone}`);
+    if (sale.customer_gstin) writeText(`GSTIN: ${sale.customer_gstin}`);
 
     doc.moveDown();
     const tableTop = doc.y;
-    doc.fontSize(9).font('Helvetica-Bold');
-    doc.text('#', 50, tableTop, { width: 30 });
-    doc.text('Item', 80, tableTop, { width: 180 });
-    doc.text('Qty', 260, tableTop, { width: 40 });
-    doc.text('Price', 300, tableTop, { width: 60 });
-    doc.text('Tax', 360, tableTop, { width: 50 });
-    doc.text('Total', 420, tableTop, { width: 80, align: 'right' });
+    setBold(true);
+    doc.fontSize(9);
+    writeText('#', { x: 50, y: tableTop, width: 30 });
+    writeText('Item', { x: 80, y: tableTop, width: 180 });
+    writeText('Qty', { x: 260, y: tableTop, width: 40 });
+    writeText('Price', { x: 300, y: tableTop, width: 60 });
+    writeText('Tax', { x: 360, y: tableTop, width: 50 });
+    writeText('Total', { x: 420, y: tableTop, width: 80, align: 'right' });
     doc.moveTo(50, tableTop + 15).lineTo(545, tableTop + 15).stroke();
 
     let y = tableTop + 25;
-    doc.font('Helvetica');
+    setBold(false);
     items.forEach((item, i) => {
       if (y > 700) { doc.addPage(); y = 50; }
-      doc.text(String(i + 1), 50, y, { width: 30 });
-      doc.text(item.product_name, 80, y, { width: 180 });
-      doc.text(String(item.quantity), 260, y, { width: 40 });
-      doc.text(item.unit_price.toFixed(2), 300, y, { width: 60 });
-      doc.text(item.tax_amount.toFixed(2), 360, y, { width: 50 });
-      doc.text(item.total.toFixed(2), 420, y, { width: 80, align: 'right' });
+      writeText(String(i + 1), { x: 50, y, width: 30 });
+      writeText(item.product_name, { x: 80, y, width: 180 });
+      writeText(String(item.quantity), { x: 260, y, width: 40 });
+      writeText(Number(item.unit_price).toFixed(2), { x: 300, y, width: 60 });
+      writeText(Number(item.tax_amount).toFixed(2), { x: 360, y, width: 50 });
+      writeText(Number(item.total).toFixed(2), { x: 420, y, width: 80, align: 'right' });
       y += 20;
     });
 
     doc.moveTo(50, y).lineTo(545, y).stroke();
     y += 15;
-    doc.text(`Subtotal: ${company.currency_symbol || '₹'}${sale.subtotal.toFixed(2)}`, 350, y, { align: 'right' });
+    const totalOpts = (yy) => ({ x: 350, y: yy, width: 195, align: 'right' });
+    writeText(`Subtotal: ${money(sale.subtotal)}`, totalOpts(y));
     y += 15;
-    if (sale.discount_amount) { doc.text(`Discount: ${company.currency_symbol || '₹'}${sale.discount_amount.toFixed(2)}`, 350, y, { align: 'right' }); y += 15; }
-    doc.text(`Tax: ${company.currency_symbol || '₹'}${sale.tax_amount.toFixed(2)}`, 350, y, { align: 'right' });
+    if (sale.discount_amount) {
+      writeText(`Discount: ${money(sale.discount_amount)}`, totalOpts(y));
+      y += 15;
+    }
+    writeText(`Tax: ${money(sale.tax_amount)}`, totalOpts(y));
     y += 15;
-    doc.font('Helvetica-Bold').fontSize(12);
-    doc.text(`Grand Total: ${company.currency_symbol || '₹'}${sale.grand_total.toFixed(2)}`, 350, y, { align: 'right' });
+    setBold(true);
+    doc.fontSize(12);
+    writeText(`Grand Total: ${money(sale.grand_total)}`, totalOpts(y));
+    y += 18;
+    setBold(false);
+    doc.fontSize(10);
+    writeText(`Paid: ${money(sale.paid_amount)}`, totalOpts(y));
     y += 15;
-    doc.font('Helvetica').fontSize(10);
-    doc.text(`Paid: ${company.currency_symbol || '₹'}${sale.paid_amount.toFixed(2)}`, 350, y, { align: 'right' });
-    y += 15;
-    doc.text(`Balance: ${company.currency_symbol || '₹'}${sale.balance_amount.toFixed(2)}`, 350, y, { align: 'right' });
+    writeText(`Balance: ${money(sale.balance_amount)}`, totalOpts(y));
 
     if (sale.notes) {
       y += 30;
-      doc.text(`Notes: ${sale.notes}`, 50, y);
+      writeText(`Notes: ${sale.notes}`, { x: 50, y, width: 495 });
     }
     if (company.invoice_terms || sale.terms) {
       y += 20;
-      doc.text(`Terms: ${sale.terms || company.invoice_terms}`, 50, y);
+      writeText(`Terms: ${sale.terms || company.invoice_terms}`, { x: 50, y, width: 495 });
     }
 
     doc.end();
   } catch (err) {
-    return error(res, err.message, 500);
+    if (!res.headersSent) return error(res, err.message, 500, null, err.code);
+    res.end();
   }
 }
 

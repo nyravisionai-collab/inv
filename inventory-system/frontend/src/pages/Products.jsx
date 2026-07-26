@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, QrCode, Package } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, QrCode } from 'lucide-react';
 import { productsAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -26,8 +28,9 @@ export default function Products() {
   const [brands, setBrands] = useState([]);
   const [units, setUnits] = useState([]);
   const [qrModal, setQrModal] = useState(null);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
+  const confirm = useConfirm();
 
   const load = (page = 1) => {
     setLoading(true);
@@ -36,7 +39,7 @@ export default function Products() {
         setItems(r.data.data);
         setPagination(r.data.pagination);
       })
-      .catch(() => error('Failed to load products'))
+      .catch(() => error(t('Failed to load products')))
       .finally(() => setLoading(false));
   };
 
@@ -66,7 +69,7 @@ export default function Products() {
   };
 
   const save = async () => {
-    if (!form.name) return error('Product name is required');
+    if (!form.name) return error(t('Product name is required'));
     setSaving(true);
     try {
       const payload = {
@@ -83,28 +86,28 @@ export default function Products() {
       };
       if (editId) {
         await productsAPI.update(editId, payload);
-        success('Product updated');
+        success(t('Product updated'));
       } else {
         await productsAPI.create(payload);
-        success('Product created');
+        success(t('Product created'));
       }
       setModal(false);
       load(pagination.page);
     } catch (err) {
-      error(err.response?.data?.message || 'Save failed');
+      error(apiErrorMessage(err, t, 'Save failed'));
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (id) => {
-    if (!confirm('Deactivate this product?')) return;
+    if (!(await confirm(t('Deactivate this product?')))) return;
     try {
       await productsAPI.remove(id);
-      success('Product deactivated');
+      success(t('Product deactivated'));
       load(pagination.page);
     } catch (err) {
-      error(err.response?.data?.message || 'Delete failed');
+      error(apiErrorMessage(err, t, 'Delete failed'));
     }
   };
 
@@ -113,7 +116,7 @@ export default function Products() {
       const r = await productsAPI.generateBarcode(id);
       setQrModal(r.data.data);
     } catch {
-      error('Failed to generate barcode');
+      error(t('Failed to generate barcode'));
     }
   };
 
@@ -121,7 +124,7 @@ export default function Products() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Products</h1>
+          <h1 className="page-title">{t('Products')}</h1>
           <p className="page-subtitle">{pagination.total} products</p>
         </div>
         <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> Add Product</button>
@@ -131,19 +134,19 @@ export default function Products() {
         <div className="card-header">
           <div className="search-box" style={{ maxWidth: 320 }}>
             <Search size={18} />
-            <input placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input placeholder={t('Search products...')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState title="No products" message="Add your first product to get started" action={<button className="btn btn-primary" onClick={openCreate}>Add Product</button>} />
+          <EmptyState title="No products" message="Add your first product to get started" action={<button className="btn btn-primary" onClick={openCreate}>{t('Add Product')}</button>} />
         ) : (
           <>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th><th>SKU</th><th>Category</th><th>Purchase</th><th>Selling</th>
-                    <th>Stock</th><th>Tax</th><th>Actions</th>
+                    <th>{t('Name')}</th><th>{t('SKU')}</th><th>{t('Category')}</th><th>{t('Purchase')}</th><th>{t('Selling')}</th>
+                    <th>{t('Stock')}</th><th>{t('Tax')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -180,74 +183,74 @@ export default function Products() {
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Product' : 'Add Product'} size="lg"
         footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button>
+            <button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
           </>
         }
       >
         <div className="form-row">
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label className="form-label">Product Name <span className="required">*</span></label>
+            <label className="form-label">{t('Product Name')}<span className="required">*</span></label>
             <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">SKU</label>
+            <label className="form-label">{t('SKU')}</label>
             <input className="form-control" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Barcode</label>
+            <label className="form-label">{t('Barcode')}</label>
             <input className="form-control" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">HSN Code</label>
+            <label className="form-label">{t('HSN Code')}</label>
             <input className="form-control" value={form.hsn_code} onChange={(e) => setForm({ ...form, hsn_code: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Category</label>
+            <label className="form-label">{t('Category')}</label>
             <select className="form-control" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
-              <option value="">Select</option>
+              <option value="">{t('Select')}</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Brand</label>
+            <label className="form-label">{t('Brand')}</label>
             <select className="form-control" value={form.brand_id} onChange={(e) => setForm({ ...form, brand_id: e.target.value })}>
-              <option value="">Select</option>
+              <option value="">{t('Select')}</option>
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Unit</label>
+            <label className="form-label">{t('Unit')}</label>
             <select className="form-control" value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })}>
-              <option value="">Select</option>
+              <option value="">{t('Select')}</option>
               {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.short_name})</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Purchase Price</label>
+            <label className="form-label">{t('Purchase Price')}</label>
             <input className="form-control" type="number" value={form.purchase_price} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Selling Price</label>
+            <label className="form-label">{t('Selling Price')}</label>
             <input className="form-control" type="number" value={form.selling_price} onChange={(e) => setForm({ ...form, selling_price: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">MRP</label>
+            <label className="form-label">{t('MRP')}</label>
             <input className="form-control" type="number" value={form.mrp} onChange={(e) => setForm({ ...form, mrp: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Tax Rate %</label>
+            <label className="form-label">{t('Tax Rate %')}</label>
             <select className="form-control" value={form.tax_rate} onChange={(e) => setForm({ ...form, tax_rate: e.target.value })}>
               {[0, 5, 12, 18, 28].map((t) => <option key={t} value={t}>{t}%</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Min Stock</label>
+            <label className="form-label">{t('Min Stock')}</label>
             <input className="form-control" type="number" value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: e.target.value })} />
           </div>
           {!editId && (
             <div className="form-group">
-              <label className="form-label">Opening Stock</label>
+              <label className="form-label">{t('Opening Stock')}</label>
               <input className="form-control" type="number" value={form.opening_stock} onChange={(e) => setForm({ ...form, opening_stock: e.target.value })} />
             </div>
           )}
@@ -261,7 +264,7 @@ export default function Products() {
             <p style={{ fontWeight: 600, marginTop: 12 }}>{qrModal.product.name}</p>
             <p style={{ color: 'var(--text-secondary)' }}>{qrModal.code}</p>
             <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--primary)' }}>{formatMoney(qrModal.product.price)}</p>
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => window.print()}>Print</button>
+            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => window.print()}>{t('Print')}</button>
           </div>
         )}
       </Modal>

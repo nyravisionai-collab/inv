@@ -12,9 +12,11 @@
     "stop": "bash STOP.sh",
     "dev:backend": "cd backend && PORT=5000 HOST=0.0.0.0 node src/server.js",
     "dev:frontend": "cd frontend && npx vite --host 0.0.0.0 --port 5173",
-    "test": "cd backend && node --test tests/api.test.js",
-    "lint": "cd backend && npm run lint",
-    "setup": "bash scripts/install.sh"
+    "test": "cd backend && npm test",
+    "lint": "cd backend && npm run lint && cd ../frontend && npm run lint",
+    "setup": "bash scripts/install.sh",
+    "i18n:check": "cd frontend && npm run i18n:check",
+    "verify": "npm run lint && npm test && npm run i18n:check && npm run build"
   },
   "engines": {
     "node": ">=18.0.0"

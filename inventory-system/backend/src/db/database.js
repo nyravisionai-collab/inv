@@ -287,9 +287,52 @@ function isReady() {
   return ready && !!rawDb;
 }
 
+/**
+ * Reload the database from disk, replacing the in-memory image.
+ *
+ * Used after restoring a backup so the running process picks up the restored
+ * file immediately instead of leaving every subsequent request to fail against
+ * a closed handle.
+ */
+function reload(sourcePath = null) {
+  if (!SQL) throw new Error('Database not initialised yet');
+
+  const target = sourcePath ? path.resolve(sourcePath) : dbPath;
+  if (!fs.existsSync(target)) throw new Error(`Database file not found: ${target}`);
+
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  const previous = rawDb;
+  const fileBuffer = fs.readFileSync(target);
+  const next = new SQL.Database(new Uint8Array(fileBuffer));
+  try {
+    next.run('PRAGMA foreign_keys = ON');
+  } catch {
+    /* ignore */
+  }
+
+  rawDb = next;
+  closed = false;
+  ready = true;
+
+  try {
+    if (previous) previous.close();
+  } catch {
+    /* ignore */
+  }
+
+  // Write the freshly loaded image back out so disk and memory agree.
+  persist();
+  return true;
+}
+
 const api = {
   init,
   isReady,
+  reload,
   prepare,
   exec,
   pragma,

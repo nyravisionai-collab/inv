@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Plus, Edit, Trash2, Shield } from 'lucide-react';
 import { usersAPI } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -17,48 +20,50 @@ export default function Users() {
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
   const { success, error } = useToast();
+  const confirm = useConfirm();
+  const { t } = useAuth();
 
   const load = (page = 1) => {
     setLoading(true);
     usersAPI.list({ page, limit: 20 })
       .then((r) => { setItems(r.data.data); setPagination(r.data.pagination); })
-      .catch(() => error('Failed to load users'))
+      .catch(() => error(t('Failed to load users')))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!form.username || !form.email || !form.full_name) return error('Fill required fields');
-    if (!editId && !form.password) return error('Password required');
+    if (!form.username || !form.email || !form.full_name) return error(t('Fill required fields'));
+    if (!editId && !form.password) return error(t('Password required'));
     setSaving(true);
     try {
       if (editId) {
         const payload = { ...form };
         if (!payload.password) delete payload.password;
         await usersAPI.update(editId, payload);
-        success('User updated');
+        success(t('User updated'));
       } else {
         await usersAPI.create(form);
-        success('User created');
+        success(t('User created'));
       }
       setModal(false);
       load(pagination.page);
     } catch (err) {
-      error(err.response?.data?.message || 'Failed');
+      error(apiErrorMessage(err, t, 'Failed'));
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (id) => {
-    if (!confirm('Deactivate this user?')) return;
+    if (!(await confirm(t('Deactivate this user?')))) return;
     try {
       await usersAPI.remove(id);
-      success('User deactivated');
+      success(t('User deactivated'));
       load(pagination.page);
     } catch (err) {
-      error(err.response?.data?.message || 'Failed');
+      error(apiErrorMessage(err, t, 'Failed'));
     }
   };
 
@@ -71,7 +76,7 @@ export default function Users() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">User Management</h1>
+          <h1 className="page-title">{t('User Management')}</h1>
           <p className="page-subtitle">{pagination.total} users</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setForm(empty); setEditId(null); setModal(true); }}>
@@ -88,8 +93,8 @@ export default function Users() {
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th><th>Username</th><th>Email</th><th>Phone</th>
-                    <th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th>
+                    <th>{t('Name')}</th><th>{t('Username')}</th><th>{t('Email')}</th><th>{t('Phone')}</th>
+                    <th>{t('Role')}</th><th>{t('Status')}</th><th>{t('Last Login')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -125,26 +130,26 @@ export default function Users() {
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit User' : 'Add User'}
         footer={
           <>
-            <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button>
+            <button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
           </>
         }
       >
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Full Name <span className="required">*</span></label>
+            <label className="form-label">{t('Full Name')}<span className="required">*</span></label>
             <input className="form-control" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Username <span className="required">*</span></label>
+            <label className="form-label">{t('Username')}<span className="required">*</span></label>
             <input className="form-control" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} disabled={!!editId} />
           </div>
           <div className="form-group">
-            <label className="form-label">Email <span className="required">*</span></label>
+            <label className="form-label">{t('Email')}<span className="required">*</span></label>
             <input className="form-control" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Phone</label>
+            <label className="form-label">{t('Phone')}</label>
             <input className="form-control" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
           <div className="form-group">
@@ -152,12 +157,12 @@ export default function Users() {
             <input className="form-control" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editId ? 'Leave blank to keep' : ''} />
           </div>
           <div className="form-group">
-            <label className="form-label">Role</label>
+            <label className="form-label">{t('Role')}</label>
             <select className="form-control" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="admin">Admin</option>
-              <option value="manager">Manager</option>
-              <option value="staff">Staff</option>
-              <option value="cashier">Cashier</option>
+              <option value="admin">{t('Admin')}</option>
+              <option value="manager">{t('Manager')}</option>
+              <option value="staff">{t('Staff')}</option>
+              <option value="cashier">{t('Cashier')}</option>
             </select>
           </div>
         </div>

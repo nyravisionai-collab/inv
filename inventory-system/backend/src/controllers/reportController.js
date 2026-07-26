@@ -1,6 +1,6 @@
 const db = require('../db/database');
 const { success, error } = require('../utils/response');
-const { today } = require('../utils/helpers');
+const { today, round2 } = require('../utils/helpers');
 
 function profitLoss(req, res) {
   try {
@@ -18,7 +18,7 @@ function profitLoss(req, res) {
     `).get(from, to);
 
     const cogs = db.prepare(`
-      SELECT COALESCE(SUM(si.quantity * COALESCE(p.purchase_price,0)),0) as total
+      SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)),0) as total
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
       LEFT JOIN products p ON p.id = si.product_id
@@ -85,7 +85,7 @@ function balanceSheet(req, res) {
     const pl = db.prepare(`
       SELECT
         (SELECT COALESCE(SUM(grand_total),0) FROM sales WHERE invoice_type IN ('sale','pos') AND status='completed' AND invoice_date <= ?) -
-        (SELECT COALESCE(SUM(si.quantity * COALESCE(p.purchase_price,0)),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date <= ?) -
+        (SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date <= ?) -
         (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date <= ?) +
         (SELECT COALESCE(SUM(amount),0) FROM incomes WHERE income_date <= ?)
       as retained
@@ -118,36 +118,120 @@ function gstReport(req, res) {
     const from = req.query.from_date || today().slice(0, 8) + '01';
     const to = req.query.to_date || today();
 
+    const companyState = db.prepare('SELECT state FROM company_settings WHERE id = 1').get()?.state || null;
+
     const outward = db.prepare(`
-      SELECT s.invoice_number, s.invoice_date, c.name as party, c.gstin,
-        s.subtotal, s.tax_amount, s.grand_total,
-        CASE WHEN c.state = (SELECT state FROM company_settings WHERE id=1) OR c.state IS NULL THEN 'intra' ELSE 'inter' END as supply_type
+      SELECT s.id, s.invoice_number, s.invoice_date, c.name as party, c.gstin, c.state as party_state,
+        s.subtotal, s.discount_amount, s.tax_amount, s.grand_total,
+        CASE WHEN c.state IS NULL OR c.state = ? THEN 'intra' ELSE 'inter' END as supply_type
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
       WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
       ORDER BY s.invoice_date
-    `).all(from, to);
+    `).all(companyState, from, to);
 
     const inward = db.prepare(`
-      SELECT p.bill_number, p.bill_date, s.name as party, s.gstin,
-        p.subtotal, p.tax_amount, p.grand_total
+      SELECT p.id, p.bill_number, p.bill_date, s.name as party, s.gstin, s.state as party_state,
+        p.subtotal, p.discount_amount, p.tax_amount, p.grand_total,
+        CASE WHEN s.state IS NULL OR s.state = ? THEN 'intra' ELSE 'inter' END as supply_type
       FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE p.bill_type='purchase' AND p.status='completed' AND p.bill_date BETWEEN ? AND ?
       ORDER BY p.bill_date
-    `).all(from, to);
+    `).all(companyState, from, to);
 
-    const taxOnSales = outward.reduce((s, r) => s + r.tax_amount, 0);
-    const taxOnPurchases = inward.reduce((s, r) => s + r.tax_amount, 0);
+    /**
+     * Split a document's tax into CGST/SGST (intra-state) or IGST (inter-state).
+     * GSTR-1 and GSTR-3B both require this breakdown, which the previous
+     * report did not provide.
+     */
+    const splitTax = (rows) => rows.map((r) => {
+      const tax = Number(r.tax_amount) || 0;
+      const intra = r.supply_type === 'intra';
+      return {
+        ...r,
+        cgst: intra ? round2(tax / 2) : 0,
+        sgst: intra ? round2(tax / 2) : 0,
+        igst: intra ? 0 : round2(tax),
+      };
+    });
+
+    const outwardRows = splitTax(outward);
+    const inwardRows = splitTax(inward);
+
+    const sumBy = (rows, key) => round2(rows.reduce((acc, r) => acc + (Number(r[key]) || 0), 0));
+
+    // Rate-wise summary of outward supplies, derived from the line items.
+    const rateWise = db.prepare(`
+      SELECT si.tax_rate as rate,
+        COALESCE(SUM(si.quantity * si.unit_price - si.discount_amount), 0) as taxable_value,
+        COALESCE(SUM(si.tax_amount), 0) as tax_amount,
+        COUNT(DISTINCT s.id) as invoice_count
+      FROM sale_items si
+      JOIN sales s ON s.id = si.sale_id
+      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed'
+        AND s.invoice_date BETWEEN ? AND ?
+      GROUP BY si.tax_rate
+      ORDER BY si.tax_rate
+    `).all(from, to).map((r) => ({
+      rate: Number(r.rate) || 0,
+      taxable_value: round2(r.taxable_value),
+      tax_amount: round2(r.tax_amount),
+      invoice_count: r.invoice_count,
+    }));
+
+    // HSN-wise summary, required for the HSN section of GSTR-1.
+    const hsnWise = db.prepare(`
+      SELECT COALESCE(NULLIF(si.hsn_code, ''), 'N/A') as hsn_code,
+        COALESCE(SUM(si.quantity), 0) as quantity,
+        COALESCE(SUM(si.quantity * si.unit_price - si.discount_amount), 0) as taxable_value,
+        COALESCE(SUM(si.tax_amount), 0) as tax_amount,
+        COALESCE(SUM(si.total), 0) as total_value
+      FROM sale_items si
+      JOIN sales s ON s.id = si.sale_id
+      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed'
+        AND s.invoice_date BETWEEN ? AND ?
+      GROUP BY COALESCE(NULLIF(si.hsn_code, ''), 'N/A')
+      ORDER BY taxable_value DESC
+    `).all(from, to).map((r) => ({
+      hsn_code: r.hsn_code,
+      quantity: round2(r.quantity),
+      taxable_value: round2(r.taxable_value),
+      tax_amount: round2(r.tax_amount),
+      total_value: round2(r.total_value),
+    }));
+
+    const outputTax = sumBy(outwardRows, 'tax_amount');
+    const inputTax = sumBy(inwardRows, 'tax_amount');
 
     return success(res, {
       from, to,
-      outwardSupply: outward,
-      inwardSupply: inward,
-      outputTax: taxOnSales,
-      inputTax: taxOnPurchases,
-      netTax: taxOnSales - taxOnPurchases,
+      companyState,
+      outwardSupply: outwardRows,
+      inwardSupply: inwardRows,
+      outputTax,
+      inputTax,
+      netTax: round2(outputTax - inputTax),
+      outputBreakdown: {
+        cgst: sumBy(outwardRows, 'cgst'),
+        sgst: sumBy(outwardRows, 'sgst'),
+        igst: sumBy(outwardRows, 'igst'),
+        taxable_value: sumBy(outwardRows, 'subtotal'),
+      },
+      inputBreakdown: {
+        cgst: sumBy(inwardRows, 'cgst'),
+        sgst: sumBy(inwardRows, 'sgst'),
+        igst: sumBy(inwardRows, 'igst'),
+        taxable_value: sumBy(inwardRows, 'subtotal'),
+      },
+      netBreakdown: {
+        cgst: round2(sumBy(outwardRows, 'cgst') - sumBy(inwardRows, 'cgst')),
+        sgst: round2(sumBy(outwardRows, 'sgst') - sumBy(inwardRows, 'sgst')),
+        igst: round2(sumBy(outwardRows, 'igst') - sumBy(inwardRows, 'igst')),
+      },
+      rateWise,
+      hsnWise,
     });
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, 500, null, err.code);
   }
 }
 

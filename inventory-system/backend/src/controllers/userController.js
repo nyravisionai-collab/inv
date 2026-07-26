@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../db/database');
 const config = require('../config');
 const { success, error, paginated } = require('../utils/response');
+const { pageParams } = require('../utils/validate');
 const { now, sanitizeLike } = require('../utils/helpers');
 
 const DEFAULT_PERMISSIONS = {
@@ -29,7 +30,7 @@ function list(req, res) {
     let where = 'WHERE 1=1';
     const params = [];
     if (search) {
-      where += ' AND (username LIKE ? OR email LIKE ? OR full_name LIKE ?)';
+      where += ' AND (username LIKE ? ESCAPE \'!\' OR email LIKE ? ESCAPE \'!\' OR full_name LIKE ? ESCAPE \'!\')';
       const s = `%${sanitizeLike(search)}%`;
       params.push(s, s, s);
     }
@@ -42,15 +43,14 @@ function list(req, res) {
     }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM users ${where}`).get(...params).c;
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
     const rows = db.prepare(`
       SELECT id, username, email, full_name, phone, role, permissions, is_active, avatar, last_login, created_at
       FROM users ${where} ORDER BY full_name LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
 
     rows.forEach(u => { u.permissions = JSON.parse(u.permissions || '{}'); });
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -173,14 +173,13 @@ function auditLogs(req, res) {
   try {
     const { page = 1, limit = 50 } = req.query;
     const total = db.prepare('SELECT COUNT(*) as c FROM audit_logs').get().c;
-    const lim = Math.min(100, +limit || 50);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit }, { defaultLimit: 50 });
     const rows = db.prepare(`
       SELECT a.*, u.full_name as user_name, u.username
       FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
       ORDER BY a.created_at DESC LIMIT ? OFFSET ?
     `).all(lim, offset);
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }

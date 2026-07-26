@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Plus, Search, Edit, Trash2, BookOpen, Users, Truck } from 'lucide-react';
 import { customersAPI, suppliersAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -33,8 +35,9 @@ function PartyPage({ type }) {
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [ledger, setLedger] = useState(null);
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
+  const confirm = useConfirm();
   const params = useParams();
   const navigate = useNavigate();
 
@@ -42,7 +45,7 @@ function PartyPage({ type }) {
     setLoading(true);
     api.list({ page, limit: 20, search: search || undefined })
       .then((r) => { setItems(r.data.data); setPagination(r.data.pagination); })
-      .catch(() => error('Failed to load'))
+      .catch(() => error(t('Failed to load')))
       .finally(() => setLoading(false));
   };
 
@@ -53,28 +56,28 @@ function PartyPage({ type }) {
   const openEdit = (p) => { setForm({ ...p }); setEditId(p.id); setModal(true); };
 
   const save = async () => {
-    if (!form.name) return error('Name is required');
+    if (!form.name) return error(t('Name is required'));
     setSaving(true);
     try {
-      if (editId) { await api.update(editId, form); success('Updated'); }
-      else { await api.create(form); success('Created'); }
+      if (editId) { await api.update(editId, form); success(t('Updated')); }
+      else { await api.create(form); success(t('Created')); }
       setModal(false);
       load(pagination.page);
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
 
   const remove = async (id) => {
-    if (!confirm('Deactivate this record?')) return;
-    try { await api.remove(id); success('Deactivated'); load(pagination.page); }
-    catch (err) { error(err.response?.data?.message || 'Failed'); }
+    if (!(await confirm(t('Deactivate this record?')))) return;
+    try { await api.remove(id); success(t('Deactivated')); load(pagination.page); }
+    catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
   };
 
   const showLedger = async (id) => {
     try {
       const r = await api.ledger(id);
       setLedger(r.data.data);
-    } catch { error('Failed to load ledger'); }
+    } catch { error(t('Failed to load ledger')); }
   };
 
   return (
@@ -90,16 +93,16 @@ function PartyPage({ type }) {
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState icon={Icon} title={`No ${title.toLowerCase()}`} action={<button className="btn btn-primary" onClick={openCreate}>Add</button>} />
+          <EmptyState icon={Icon} title={`No ${title.toLowerCase()}`} action={<button className="btn btn-primary" onClick={openCreate}>{t('Add')}</button>} />
         ) : (
           <>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th><th>Phone</th><th>City</th><th>GSTIN</th>
-                    {isCustomer && <th>Credit Limit</th>}
-                    <th>Balance</th><th>Actions</th>
+                    <th>{t('Name')}</th><th>{t('Phone')}</th><th>{t('City')}</th><th>{t('GSTIN')}</th>
+                    {isCustomer && <th>{t('Credit Limit')}</th>}
+                    <th>{t('Balance')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -131,22 +134,22 @@ function PartyPage({ type }) {
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit' : `Add ${isCustomer ? 'Customer' : 'Supplier'}`} size="lg"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
       >
         <div className="form-row">
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label className="form-label">Name <span className="required">*</span></label>
+            <label className="form-label">{t('Name')}<span className="required">*</span></label>
             <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
-          <div className="form-group"><label className="form-label">Phone</label><input className="form-control" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">Email</label><input className="form-control" value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">Address</label><input className="form-control" value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">City</label><input className="form-control" value={form.city || ''} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">State</label><input className="form-control" value={form.state || ''} onChange={(e) => setForm({ ...form, state: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">Pincode</label><input className="form-control" value={form.pincode || ''} onChange={(e) => setForm({ ...form, pincode: e.target.value })} /></div>
-          <div className="form-group"><label className="form-label">GSTIN</label><input className="form-control" value={form.gstin || ''} onChange={(e) => setForm({ ...form, gstin: e.target.value })} /></div>
-          {isCustomer && <div className="form-group"><label className="form-label">Credit Limit</label><input className="form-control" type="number" value={form.credit_limit || 0} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} /></div>}
-          {!editId && <div className="form-group"><label className="form-label">Opening Balance</label><input className="form-control" type="number" value={form.opening_balance || 0} onChange={(e) => setForm({ ...form, opening_balance: e.target.value })} /></div>}
+          <div className="form-group"><label className="form-label">{t('Phone')}</label><input className="form-control" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Email')}</label><input className="form-control" value={form.email || ''} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Address')}</label><input className="form-control" value={form.address || ''} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('City')}</label><input className="form-control" value={form.city || ''} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('State')}</label><input className="form-control" value={form.state || ''} onChange={(e) => setForm({ ...form, state: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Pincode')}</label><input className="form-control" value={form.pincode || ''} onChange={(e) => setForm({ ...form, pincode: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('GSTIN')}</label><input className="form-control" value={form.gstin || ''} onChange={(e) => setForm({ ...form, gstin: e.target.value })} /></div>
+          {isCustomer && <div className="form-group"><label className="form-label">{t('Credit Limit')}</label><input className="form-control" type="number" value={form.credit_limit || 0} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} /></div>}
+          {!editId && <div className="form-group"><label className="form-label">{t('Opening Balance')}</label><input className="form-control" type="number" value={form.opening_balance || 0} onChange={(e) => setForm({ ...form, opening_balance: e.target.value })} /></div>}
         </div>
       </Modal>
 
@@ -154,12 +157,12 @@ function PartyPage({ type }) {
         {ledger && (
           <>
             <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Opening</span><div style={{ fontWeight: 600 }}>{formatMoney(ledger.opening_balance)}</div></div>
-              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Closing</span><div style={{ fontWeight: 600 }}>{formatMoney(ledger.closing_balance)}</div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Opening')}</span><div style={{ fontWeight: 600 }}>{formatMoney(ledger.opening_balance)}</div></div>
+              <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Closing')}</span><div style={{ fontWeight: 600 }}>{formatMoney(ledger.closing_balance)}</div></div>
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Ref</th><th>Type</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+                <thead><tr><th>{t('Date')}</th><th>{t('Ref')}</th><th>{t('Type')}</th><th>{t('Debit')}</th><th>{t('Credit')}</th><th>{t('Balance')}</th></tr></thead>
                 <tbody>
                   {(ledger.entries || []).map((e, i) => (
                     <tr key={i}>
@@ -170,7 +173,7 @@ function PartyPage({ type }) {
                     </tr>
                   ))}
                   {(!ledger.entries || !ledger.entries.length) && (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>No transactions</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No transactions')}</td></tr>
                   )}
                 </tbody>
               </table>

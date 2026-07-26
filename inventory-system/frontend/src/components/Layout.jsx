@@ -205,7 +205,7 @@ export default function Layout() {
                     )
                   )}
                   {!Object.values(searchResults).some((a) => a?.length) && (
-                    <div className="search-result-item" style={{ color: 'var(--text-secondary)' }}>No results found</div>
+                    <div className="search-result-item" style={{ color: 'var(--text-secondary)' }}>{t('No results found')}</div>
                   )}
                 </div>
               )}
@@ -229,7 +229,7 @@ export default function Layout() {
                 marginRight: '4px'
               }}
             >
-              <option value="en">English</option>
+              <option value="en">{t('English')}</option>
               <option value="gu">ગુજરાતી</option>
             </select>
             <button className="btn-icon" onClick={toggleTheme} title="Toggle theme">

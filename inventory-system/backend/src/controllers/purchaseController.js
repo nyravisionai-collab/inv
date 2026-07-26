@@ -4,6 +4,13 @@ const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = r
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
+const {
+  requireArray, validateLineItem, validateDocumentTotals,
+  oneOf, optionalDate, pageParams,
+} = require('../utils/validate');
+
+const PURCHASE_TYPES = ['purchase', 'purchase_order', 'purchase_return'];
+const PURCHASE_STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'converted'];
 
 function list(req, res) {
   try {
@@ -19,7 +26,7 @@ function list(req, res) {
     if (from_date) { where += ' AND p.bill_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND p.bill_date <= ?'; params.push(to_date); }
     if (search) {
-      where += ' AND (p.bill_number LIKE ? OR s.name LIKE ? OR p.supplier_invoice LIKE ?)';
+      where += ' AND (p.bill_number LIKE ? ESCAPE \'!\' OR s.name LIKE ? ESCAPE \'!\' OR p.supplier_invoice LIKE ? ESCAPE \'!\')';
       const q = `%${sanitizeLike(search)}%`;
       params.push(q, q, q);
     }
@@ -28,8 +35,7 @@ function list(req, res) {
       SELECT COUNT(*) as c FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id ${where}
     `).get(...params).c;
 
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
       SELECT p.*, s.name as supplier_name, s.phone as supplier_phone, u.full_name as created_by_name
@@ -41,9 +47,9 @@ function list(req, res) {
       LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
 
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -72,48 +78,56 @@ function getById(req, res) {
     purchase.payments = db.prepare('SELECT * FROM payments WHERE purchase_id = ? ORDER BY payment_date').all(purchase.id);
     return success(res, purchase);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
 function create(req, res) {
   const createTxn = db.transaction(() => {
-    const {
-      bill_type = 'purchase', supplier_id, bill_date, due_date, reference_number, supplier_invoice,
-      items = [], discount_type = 'amount', discount_value = 0,
-      shipping_charges = 0, other_charges = 0, round_off = 0,
-      notes, warehouse_id, paid_amount = 0, payment_mode = 'cash',
-      bank_account_id, status = 'completed',
-    } = req.body;
+    const { supplier_id, reference_number, supplier_invoice, notes, warehouse_id,
+      payment_mode = 'cash', bank_account_id } = req.body;
 
-    if (!items.length) throw new Error('At least one item is required');
+    const bill_type = oneOf(req.body.bill_type, PURCHASE_TYPES, 'Bill type', 'purchase');
+    const status = oneOf(req.body.status, PURCHASE_STATUSES, 'Status', 'completed');
+    const items = requireArray(req.body.items, 'Items');
+    const money = validateDocumentTotals(req.body);
+    const date = optionalDate(req.body.bill_date, 'Bill date') || today();
+    const due_date = optionalDate(req.body.due_date, 'Due date');
 
-    const billNumber = numberService.nextNumber(bill_type);
-    const date = bill_date || today();
     const wh = warehouse_id || stockService.getDefaultWarehouse()?.id;
 
-    const processedItems = items.map((item) => {
-      const calc = calcLineTotal(item.quantity, item.unit_price, item.discount_type || 'amount', item.discount_value || 0, item.tax_rate || 0);
+    const processedItems = items.map((item, index) => {
+      const v = validateLineItem(item, index);
+      const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
       return {
         product_id: item.product_id || null,
         product_name: item.product_name || item.name,
         hsn_code: item.hsn_code || null,
         batch_number: item.batch_number || null,
-        expiry_date: item.expiry_date || null,
-        quantity: Number(item.quantity) || 1,
+        expiry_date: optionalDate(item.expiry_date, `Item ${index + 1} expiry date`),
+        quantity: v.quantity,
         unit_id: item.unit_id || null,
-        unit_price: Number(item.unit_price) || 0,
-        discount_type: item.discount_type || 'amount',
-        discount_value: Number(item.discount_value) || 0,
+        unit_price: v.unitPrice,
+        discount_type: v.discountType,
+        discount_value: v.discountValue,
         discount_amount: calc.discountAmount,
-        tax_rate: Number(item.tax_rate) || 0,
+        tax_rate: v.taxRate,
         tax_amount: calc.taxAmount,
         total: calc.total,
       };
     });
 
-    const totals = calcInvoiceTotals(processedItems, discount_type, discount_value, shipping_charges, other_charges, round_off);
-    const paid = Number(paid_amount) || 0;
+    // A purchase return moves goods back out of stock, so it needs the same
+    // availability guard that sales use.
+    if (status === 'completed' && bill_type === 'purchase_return') {
+      stockService.assertItemsAvailable(processedItems, wh);
+    }
+
+    const billNumber = numberService.nextNumber(bill_type);
+
+    const totals = calcInvoiceTotals(processedItems, money.discountType, money.discountValue,
+      money.shippingCharges, money.otherCharges, money.roundOff);
+    const paid = money.paidAmount;
     const balance = round2(totals.grandTotal - paid);
     let paymentStatus = 'unpaid';
     if (paid >= totals.grandTotal) paymentStatus = 'paid';
@@ -127,9 +141,9 @@ function create(req, res) {
         balance_amount, notes, warehouse_id, created_by
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      billNumber, bill_type, supplier_id || null, date, due_date || null, reference_number || null, supplier_invoice || null,
-      status, paymentStatus, totals.subtotal, discount_type, Number(discount_value) || 0, totals.discountAmount,
-      totals.taxAmount, Number(shipping_charges) || 0, Number(other_charges) || 0, Number(round_off) || 0,
+      billNumber, bill_type, supplier_id || null, date, due_date, reference_number || null, supplier_invoice || null,
+      status, paymentStatus, totals.subtotal, money.discountType, money.discountValue, totals.discountAmount,
+      totals.taxAmount, money.shippingCharges, money.otherCharges, money.roundOff,
       totals.grandTotal, paid, balance, notes || null, wh || null, req.user.id
     );
 
@@ -194,15 +208,15 @@ function create(req, res) {
     full.items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id = ?').all(purchase.id);
     return success(res, full, 'Purchase created', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
 function cancel(req, res) {
   const txn = db.transaction(() => {
     const purchase = db.prepare('SELECT * FROM purchases WHERE id = ?').get(req.params.id);
-    if (!purchase) throw new Error('Purchase not found');
-    if (purchase.status === 'cancelled') throw new Error('Already cancelled');
+    if (!purchase) throw Object.assign(new Error('Purchase not found'), { status: 404, code: 'ERR_NOT_FOUND' });
+    if (purchase.status === 'cancelled') throw Object.assign(new Error('Already cancelled'), { status: 400, code: 'ERR_ALREADY_CANCELLED' });
 
     if (purchase.status === 'completed') {
       const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id = ?').all(purchase.id);
@@ -227,7 +241,7 @@ function cancel(req, res) {
     txn();
     return success(res, null, 'Purchase cancelled');
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 

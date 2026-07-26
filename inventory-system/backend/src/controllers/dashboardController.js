@@ -32,7 +32,7 @@ function getDashboard(req, res) {
     `).get(t);
 
     const cogs = db.prepare(`
-      SELECT COALESCE(SUM(si.quantity * p.purchase_price), 0) as total
+      SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)), 0) as total
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
       LEFT JOIN products p ON p.id = si.product_id

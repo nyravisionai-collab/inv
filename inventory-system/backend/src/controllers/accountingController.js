@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
+const { pageParams } = require('../utils/validate');
 const { today, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const partyService = require('../services/partyService');
@@ -60,17 +61,16 @@ function listExpenses(req, res) {
     if (from_date) { where += ' AND e.expense_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND e.expense_date <= ?'; params.push(to_date); }
     if (category) { where += ' AND e.category = ?'; params.push(category); }
-    if (search) { where += ' AND (e.description LIKE ? OR e.expense_number LIKE ?)'; const s = `%${sanitizeLike(search)}%`; params.push(s, s); }
+    if (search) { where += ' AND (e.description LIKE ? ESCAPE \'!\' OR e.expense_number LIKE ? ESCAPE \'!\')'; const s = `%${sanitizeLike(search)}%`; params.push(s, s); }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM expenses e ${where}`).get(...params).c;
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
     const rows = db.prepare(`
       SELECT e.*, ba.account_name as bank_account_name FROM expenses e
       LEFT JOIN bank_accounts ba ON ba.id = e.bank_account_id
       ${where} ORDER BY e.expense_date DESC LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -124,14 +124,13 @@ function listIncomes(req, res) {
     if (category) { where += ' AND i.category = ?'; params.push(category); }
 
     const total = db.prepare(`SELECT COUNT(*) as c FROM incomes i ${where}`).get(...params).c;
-    const lim = Math.min(100, +limit || 20);
-    const offset = (Math.max(1, +page) - 1) * lim;
+    const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
     const rows = db.prepare(`
       SELECT i.*, ba.account_name as bank_account_name FROM incomes i
       LEFT JOIN bank_accounts ba ON ba.id = i.bank_account_id
       ${where} ORDER BY i.income_date DESC LIMIT ? OFFSET ?
     `).all(...params, lim, offset);
-    return paginated(res, rows, total, +page || 1, lim);
+    return paginated(res, rows, total, pageNo, lim);
   } catch (err) {
     return error(res, err.message, 500);
   }

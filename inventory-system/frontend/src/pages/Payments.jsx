@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { paymentsAPI, customersAPI, suppliersAPI, accountingAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { apiErrorMessage } from '../utils/apiError';
+import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -23,14 +25,15 @@ export default function Payments() {
   const [banks, setBanks] = useState([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ party_id: '', payment_date: today(), amount: '', payment_mode: 'cash', bank_account_id: '', notes: '' });
-  const { formatMoney } = useAuth();
+  const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
+  const confirm = useConfirm();
 
   const load = (page = 1) => {
     setLoading(true);
     paymentsAPI.list({ page, limit: 20, type })
       .then((r) => { setItems(r.data.data); setPagination(r.data.pagination); })
-      .catch(() => error('Failed to load'))
+      .catch(() => error(t('Failed to load')))
       .finally(() => setLoading(false));
   };
 
@@ -42,7 +45,7 @@ export default function Payments() {
   }, [location.pathname]);
 
   const save = async () => {
-    if (!form.amount || form.amount <= 0) return error('Enter valid amount');
+    if (!form.amount || form.amount <= 0) return error(t('Enter valid amount'));
     setSaving(true);
     try {
       await paymentsAPI.create({
@@ -55,18 +58,18 @@ export default function Payments() {
         bank_account_id: form.bank_account_id || null,
         notes: form.notes,
       });
-      success('Payment recorded');
+      success(t('Payment recorded'));
       setModal(false);
       setForm({ party_id: '', payment_date: today(), amount: '', payment_mode: 'cash', bank_account_id: '', notes: '' });
       load();
-    } catch (err) { error(err.response?.data?.message || 'Failed'); }
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
 
   const remove = async (id) => {
-    if (!confirm('Delete this payment?')) return;
-    try { await paymentsAPI.remove(id); success('Deleted'); load(pagination.page); }
-    catch (err) { error(err.response?.data?.message || 'Failed'); }
+    if (!(await confirm(t('Delete this payment?')))) return;
+    try { await paymentsAPI.remove(id); success(t('Deleted')); load(pagination.page); }
+    catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
   };
 
   return (
@@ -77,12 +80,12 @@ export default function Payments() {
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState title="No payments" action={<button className="btn btn-primary" onClick={() => setModal(true)}>Record Payment</button>} />
+          <EmptyState title="No payments" action={<button className="btn btn-primary" onClick={() => setModal(true)}>{t('Record Payment')}</button>} />
         ) : (
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Number</th><th>Date</th><th>Party</th><th>Mode</th><th>Amount</th><th>Notes</th><th>Actions</th></tr></thead>
+                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Party')}</th><th>{t('Mode')}</th><th>{t('Amount')}</th><th>{t('Notes')}</th><th>{t('Actions')}</th></tr></thead>
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
@@ -104,42 +107,42 @@ export default function Payments() {
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title={`Record ${title}`}
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
       >
         <div className="form-group">
           <label className="form-label">{isIn ? 'Customer' : 'Supplier'}</label>
           <select className="form-control" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
-            <option value="">Select</option>
+            <option value="">{t('Select')}</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Date</label>
+            <label className="form-label">{t('Date')}</label>
             <input className="form-control" type="date" value={form.payment_date} onChange={(e) => setForm({ ...form, payment_date: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Amount <span className="required">*</span></label>
+            <label className="form-label">{t('Amount')}<span className="required">*</span></label>
             <input className="form-control" type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           </div>
         </div>
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Mode</label>
+            <label className="form-label">{t('Mode')}</label>
             <select className="form-control" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}>
-              <option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="cheque">Cheque</option><option value="card">Card</option>
+              <option value="cash">{t('Cash')}</option><option value="upi">{t('UPI')}</option><option value="bank">{t('Bank')}</option><option value="cheque">{t('Cheque')}</option><option value="card">{t('Card')}</option>
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Account</label>
+            <label className="form-label">{t('Account')}</label>
             <select className="form-control" value={form.bank_account_id} onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}>
-              <option value="">Default Cash</option>
+              <option value="">{t('Default Cash')}</option>
               {banks.map((b) => <option key={b.id} value={b.id}>{b.account_name}</option>)}
             </select>
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">Notes</label>
+          <label className="form-label">{t('Notes')}</label>
           <textarea className="form-control" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} />
         </div>
       </Modal>

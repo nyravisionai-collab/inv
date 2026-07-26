@@ -2,6 +2,85 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./database');
 
+/**
+ * Columns added after the initial release. `CREATE TABLE IF NOT EXISTS` will
+ * not alter an existing table, so each new column is applied additively.
+ */
+const ADDITIVE_COLUMNS = [
+  ['company_settings', 'allow_negative_stock', 'INTEGER DEFAULT 0'],
+  ['sale_items', 'cost_price', 'REAL DEFAULT 0'],
+];
+
+function columnExists(table, column) {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+    return rows.some((r) => r.name === column);
+  } catch {
+    return false;
+  }
+}
+
+function applyAdditiveColumns() {
+  for (const [table, column, definition] of ADDITIVE_COLUMNS) {
+    try {
+      if (!columnExists(table, column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+        console.log(`  + ${table}.${column}`);
+      }
+    } catch (err) {
+      console.warn(`  ! could not add ${table}.${column}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Seed warehouse_stock for products that only ever had a product-level total.
+ *
+ * Stock validation works per warehouse, so a product carrying `current_stock`
+ * with no `warehouse_stock` row would otherwise look out of stock and block
+ * every sale on an upgraded database.
+ */
+function backfillWarehouseStock() {
+  try {
+    const warehouse = db.prepare(
+      'SELECT id FROM warehouses WHERE is_default = 1 AND is_active = 1 LIMIT 1'
+    ).get() || db.prepare('SELECT id FROM warehouses WHERE is_active = 1 LIMIT 1').get();
+    if (!warehouse) return;
+
+    const orphans = db.prepare(`
+      SELECT id, COALESCE(current_stock, 0) as qty
+      FROM products
+      WHERE COALESCE(is_service, 0) = 0
+        AND COALESCE(current_stock, 0) <> 0
+        AND id NOT IN (SELECT DISTINCT product_id FROM warehouse_stock)
+    `).all();
+
+    if (!orphans.length) return;
+
+    const insert = db.prepare(
+      'INSERT INTO warehouse_stock (product_id, warehouse_id, quantity) VALUES (?, ?, ?)'
+    );
+    for (const p of orphans) insert.run(p.id, warehouse.id, p.qty);
+    console.log(`  + seeded warehouse stock for ${orphans.length} product(s)`);
+  } catch (err) {
+    console.warn(`  ! warehouse stock backfill skipped: ${err.message}`);
+  }
+}
+
+/** Backfill cost_price for rows written before the column existed. */
+function backfillCostPrice() {
+  try {
+    db.exec(`
+      UPDATE sale_items
+      SET cost_price = COALESCE(
+        (SELECT p.purchase_price FROM products p WHERE p.id = sale_items.product_id), 0)
+      WHERE cost_price IS NULL OR cost_price = 0
+    `);
+  } catch (err) {
+    console.warn(`  ! cost_price backfill skipped: ${err.message}`);
+  }
+}
+
 async function migrate() {
   console.log('Running database migrations...');
   await db.init();
@@ -21,6 +100,12 @@ async function migrate() {
       }
 
       db.exec('COMMIT');
+
+      // Additive migrations run outside the schema transaction because
+      // ALTER TABLE on an already-correct schema is a harmless no-op.
+      applyAdditiveColumns();
+      backfillCostPrice();
+      backfillWarehouseStock();
     } catch (err) {
       try {
         db.exec('ROLLBACK');
