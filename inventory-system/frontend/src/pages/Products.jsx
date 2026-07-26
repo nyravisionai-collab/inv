@@ -28,6 +28,8 @@ export default function Products() {
   const [brands, setBrands] = useState([]);
   const [units, setUnits] = useState([]);
   const [qrModal, setQrModal] = useState(null);
+  const [allBarcodesModal, setAllBarcodesModal] = useState(false);
+  const [allBarcodesList, setAllBarcodesList] = useState([]);
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const confirm = useConfirm();
@@ -120,6 +122,16 @@ export default function Products() {
     }
   };
 
+  const openAllBarcodes = async () => {
+    try {
+      const r = await productsAPI.allBarcodes();
+      setAllBarcodesList(r.data.data);
+      setAllBarcodesModal(true);
+    } catch {
+      error(t('Failed to load barcodes'));
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -127,7 +139,10 @@ export default function Products() {
           <h1 className="page-title">{t('Products')}</h1>
           <p className="page-subtitle">{pagination.total} products</p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> Add Product</button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-secondary" onClick={openAllBarcodes}><QrCode size={18} /> {t('Print All Barcodes')}</button>
+          <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> Add Product</button>
+        </div>
       </div>
 
       <div className="card">
@@ -267,6 +282,26 @@ export default function Products() {
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => window.print()}>{t('Print')}</button>
           </div>
         )}
+      </Modal>
+
+      <Modal open={allBarcodesModal} onClose={() => setAllBarcodesModal(false)} title={t('All Product Barcodes')} size="xl"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setAllBarcodesModal(false)}>{t('Cancel')}</button>
+            <button className="btn btn-primary" onClick={() => window.print()}><QrCode size={18} /> {t('Print')}</button>
+          </>
+        }
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+          {allBarcodesList.map((item) => (
+            <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', textAlign: 'center', background: 'var(--surface)', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+              <img src={item.qr} alt="QR" style={{ width: 140, height: 140, margin: '0 auto' }} />
+              <p style={{ fontWeight: 600, fontSize: 13, marginTop: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>{item.name}</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{item.code}</p>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--primary)', marginTop: 4 }}>{formatMoney(item.price)}</p>
+            </div>
+          ))}
+        </div>
       </Modal>
     </div>
   );
