@@ -389,4 +389,135 @@ describe('Inventory API (no-auth offline mode)', () => {
     assert.strictEqual(r.status, 400);
     assert.strictEqual(r.data.code, 'ERR_INVALID_ENUM');
   });
+  it('a party payment clears the receivable it belongs to', async () => {
+    const cust = await req('POST', '/customers', { name: 'Partial Payer', phone: '4242' });
+    const cid = cust.data.data.id;
+    const prod = await req('POST', '/products', {
+      name: 'Payable Widget', sku: 'PW-1', selling_price: 400, opening_stock: 20,
+    });
+
+    // POS bill of 400 with only 300 paid at the counter.
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'pos', customer_id: cid, status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: 'Payable Widget', quantity: 1, unit_price: 400 }],
+      paid_amount: 300,
+    });
+    assert.strictEqual(sale.data.data.balance_amount, 100);
+
+    const before = await req('GET', '/dashboard');
+    assert.ok(before.data.data.receivables >= 100);
+
+    // "Record Payment" names the customer but no invoice.
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 100,
+    });
+    assert.strictEqual(pay.status, 201);
+    assert.strictEqual(pay.data.data.unallocated_amount, 0);
+
+    // The invoice is settled, so it leaves the receivables figure.
+    const settled = await req('GET', `/sales/${sale.data.data.id}`);
+    assert.strictEqual(settled.data.data.balance_amount, 0);
+    assert.strictEqual(settled.data.data.payment_status, 'paid');
+
+    const after = await req('GET', '/dashboard');
+    assert.strictEqual(after.data.data.receivables, before.data.data.receivables - 100);
+
+    const cAfter = await req('GET', `/customers/${cid}`);
+    assert.strictEqual(cAfter.data.data.current_balance, 0);
+  });
+
+  it('spreads one payment over the oldest bills and reverses cleanly on delete', async () => {
+    const cid = (await req('POST', '/customers', { name: 'FIFO Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'FIFO Item', sku: 'FI-1', selling_price: 100, opening_stock: 100,
+    })).data.data.id;
+    const mk = (qty, date) => req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed', invoice_date: date,
+      items: [{ product_id: pid, product_name: 'FIFO Item', quantity: qty, unit_price: 100 }],
+      paid_amount: 0,
+    });
+    const older = await mk(2, '2026-01-01'); // 200
+    const newer = await mk(3, '2026-02-01'); // 300
+
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 250,
+    });
+
+    // Oldest bill is cleared first, the remainder lands on the next one.
+    let a = await req('GET', `/sales/${older.data.data.id}`);
+    let b = await req('GET', `/sales/${newer.data.data.id}`);
+    assert.strictEqual(a.data.data.balance_amount, 0);
+    assert.strictEqual(a.data.data.payment_status, 'paid');
+    assert.strictEqual(b.data.data.balance_amount, 250);
+    assert.strictEqual(b.data.data.payment_status, 'partial');
+
+    // Deleting the payment must restore both invoices exactly.
+    await req('DELETE', `/payments/${pay.data.data.id}`);
+    a = await req('GET', `/sales/${older.data.data.id}`);
+    b = await req('GET', `/sales/${newer.data.data.id}`);
+    assert.strictEqual(a.data.data.balance_amount, 200);
+    assert.strictEqual(a.data.data.payment_status, 'unpaid');
+    assert.strictEqual(b.data.data.balance_amount, 300);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 500);
+  });
+
+  it('keeps an overpayment on the customer account as credit', async () => {
+    const cid = (await req('POST', '/customers', { name: 'Advance Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Advance Item', sku: 'AI-1', selling_price: 100, opening_stock: 10,
+    })).data.data.id;
+    await req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed',
+      items: [{ product_id: pid, product_name: 'Advance Item', quantity: 1, unit_price: 100 }],
+      paid_amount: 0,
+    });
+
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 300,
+    });
+    assert.strictEqual(pay.data.data.unallocated_amount, 200);
+    // 100 settled the bill, 200 sits as credit (negative = we owe them).
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, -200);
+  });
+
+  it('releases money held by a cancelled invoice', async () => {
+    const cid = (await req('POST', '/customers', { name: 'Cancel Payer' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Cancel Item', sku: 'CI-1', selling_price: 100, opening_stock: 10,
+    })).data.data.id;
+    const mk = (date) => req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed', invoice_date: date,
+      items: [{ product_id: pid, product_name: 'Cancel Item', quantity: 1, unit_price: 100 }],
+      paid_amount: 0,
+    });
+    const first = await mk('2026-03-01');
+    const second = await mk('2026-04-01');
+    await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 100,
+    });
+
+    await req('POST', `/sales/${first.data.data.id}/cancel`);
+
+    // The cancelled bill gives the money back, which then settles the other one.
+    const cancelled = await req('GET', `/sales/${first.data.data.id}`);
+    assert.strictEqual(cancelled.data.data.paid_amount, 0);
+    const survivor = await req('GET', `/sales/${second.data.data.id}`);
+    assert.strictEqual(survivor.data.data.balance_amount, 0);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 0);
+  });
+
+  it('clears supplier payables the same way', async () => {
+    const sid = (await req('POST', '/suppliers', { name: 'Payable Supp' })).data.data.id;
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', supplier_id: sid, status: 'completed',
+      items: [{ product_name: 'Supp Item', quantity: 5, unit_price: 40 }],
+      paid_amount: 100,
+    });
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 100);
+
+    await req('POST', '/payments', {
+      payment_type: 'payment_out', party_type: 'supplier', party_id: sid, amount: 100,
+    });
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 0);
+  });
 });

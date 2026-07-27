@@ -375,6 +375,18 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 
+-- How much of a party payment was settled against each bill.
+-- Kept separate from `payments` so one payment can clear several invoices and
+-- deleting it can reverse each slice exactly.
+CREATE TABLE IF NOT EXISTS payment_allocations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  payment_id INTEGER NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+  sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+  purchase_id INTEGER REFERENCES purchases(id) ON DELETE CASCADE,
+  amount REAL NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS expenses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   expense_number TEXT UNIQUE,
@@ -486,6 +498,9 @@ CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(bill_date);
 CREATE INDEX IF NOT EXISTS idx_purchases_supplier ON purchases(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
 CREATE INDEX IF NOT EXISTS idx_payments_party ON payments(party_type, party_id);
+CREATE INDEX IF NOT EXISTS idx_payment_alloc_payment ON payment_allocations(payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_alloc_sale ON payment_allocations(sale_id);
+CREATE INDEX IF NOT EXISTS idx_payment_alloc_purchase ON payment_allocations(purchase_id);
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name);

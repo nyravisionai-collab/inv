@@ -29,6 +29,9 @@ export default function Payments() {
   const { success, error } = useToast();
   const confirm = useConfirm();
 
+  // What the selected party still owes, so the amount can be checked at a glance.
+  const outstanding = Number(parties.find((p) => String(p.id) === String(form.party_id))?.current_balance) || 0;
+
   const load = (page = 1) => {
     setLoading(true);
     paymentsAPI.list({ page, limit: 20, type })
@@ -48,7 +51,7 @@ export default function Payments() {
     if (!form.amount || form.amount <= 0) return error(t('Enter valid amount'));
     setSaving(true);
     try {
-      await paymentsAPI.create({
+      const res = await paymentsAPI.create({
         payment_type: type,
         party_type: isIn ? 'customer' : 'supplier',
         party_id: form.party_id || null,
@@ -58,7 +61,11 @@ export default function Payments() {
         bank_account_id: form.bank_account_id || null,
         notes: form.notes,
       });
-      success(t('Payment recorded'));
+      // The server settles the money against open bills; tell the user when
+      // part of it could not be matched and is left on account.
+      const extra = Number(res.data.data?.unallocated_amount) || 0;
+      if (extra > 0) success(`${t('Payment recorded')} — ${formatMoney(extra)} ${t('kept on account as advance')}`);
+      else success(t('Payment recorded'));
       setModal(false);
       setForm({ party_id: '', payment_date: today(), amount: '', payment_mode: 'cash', bank_account_id: '', notes: '' });
       load();
@@ -115,6 +122,11 @@ export default function Payments() {
             <option value="">{t('Select')}</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          {outstanding > 0 && (
+            <div className="form-hint">
+              {t('Outstanding')}: <strong>{formatMoney(outstanding)}</strong> — {t('the amount is settled against the oldest open bills first')}
+            </div>
+          )}
         </div>
         <div className="form-row">
           <div className="form-group">

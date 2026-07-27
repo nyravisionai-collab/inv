@@ -5,6 +5,7 @@ const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
 const productService = require('../services/productService');
+const paymentService = require('../services/paymentService');
 const {
   requireArray, validateLineItem, validateDocumentTotals,
   oneOf, optionalDate, pageParams,
@@ -208,10 +209,15 @@ function create(req, res) {
 
     if (paid > 0 && status === 'completed') {
       const payNum = numberService.nextNumber('payment_out');
-      db.prepare(`
+      const payRes = db.prepare(`
         INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, purchase_id, created_by)
         VALUES (?,?,?,?,?,?,?,?,?,?)
       `).run(payNum, 'payment_out', 'supplier', supplier_id || null, date, paid, payment_mode, bank_account_id || null, purchaseId, req.user.id);
+
+      // Already reflected in the bill's paid_amount — record the allocation so
+      // the supplier balance does not subtract it twice.
+      db.prepare('INSERT INTO payment_allocations (payment_id, purchase_id, amount) VALUES (?,?,?)')
+        .run(payRes.lastInsertRowid, purchaseId, paid);
 
       if (bank_account_id) {
         partyService.updateBankBalance(bank_account_id, paid, 'debit');
@@ -258,6 +264,8 @@ function cancel(req, res) {
     }
 
     db.prepare("UPDATE purchases SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now(), purchase.id);
+    // Same as sales: a cancelled bill releases whatever was paid against it.
+    paymentService.releaseDocument('payment_out', purchase.id);
     if (purchase.supplier_id) partyService.updateSupplierBalance(purchase.supplier_id);
     return purchase;
   });

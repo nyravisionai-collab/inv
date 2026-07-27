@@ -81,6 +81,57 @@ function backfillCostPrice() {
   }
 }
 
+/**
+ * Rebuild payment allocations for databases written before the table existed.
+ *
+ * Old rows fall into two groups: payments tied to a document (their amount is
+ * already inside that document's paid_amount, so the allocation just records
+ * the fact), and loose party payments (never settled against anything, which
+ * is exactly the bug — those are spread over the open bills now).
+ */
+function backfillPaymentAllocations() {
+  try {
+    const done = db.prepare('SELECT COUNT(*) as c FROM payment_allocations').get().c;
+    if (done > 0) return;
+
+    const paymentService = require('../services/paymentService');
+
+    const linked = db.prepare(
+      'SELECT * FROM payments WHERE sale_id IS NOT NULL OR purchase_id IS NOT NULL'
+    ).all();
+    const insert = db.prepare(
+      'INSERT INTO payment_allocations (payment_id, sale_id, purchase_id, amount) VALUES (?,?,?,?)'
+    );
+    for (const p of linked) {
+      insert.run(p.id, p.sale_id || null, p.purchase_id || null, p.amount);
+    }
+
+    const loose = db.prepare(`
+      SELECT * FROM payments
+      WHERE sale_id IS NULL AND purchase_id IS NULL AND party_id IS NOT NULL
+      ORDER BY payment_date ASC, id ASC
+    `).all();
+    for (const p of loose) {
+      paymentService.allocatePayment(p);
+    }
+
+    if (linked.length || loose.length) {
+      console.log(`  + allocated ${linked.length + loose.length} existing payment(s)`);
+    }
+
+    // Party balances are derived from allocations, so refresh them.
+    const partyService = require('../services/partyService');
+    for (const c of db.prepare('SELECT id FROM customers').all()) {
+      partyService.updateCustomerBalance(c.id);
+    }
+    for (const s of db.prepare('SELECT id FROM suppliers').all()) {
+      partyService.updateSupplierBalance(s.id);
+    }
+  } catch (err) {
+    console.warn(`  ! payment allocation backfill skipped: ${err.message}`);
+  }
+}
+
 async function migrate() {
   console.log('Running database migrations...');
   await db.init();
@@ -106,6 +157,7 @@ async function migrate() {
       applyAdditiveColumns();
       backfillCostPrice();
       backfillWarehouseStock();
+      backfillPaymentAllocations();
     } catch (err) {
       try {
         db.exec('ROLLBACK');

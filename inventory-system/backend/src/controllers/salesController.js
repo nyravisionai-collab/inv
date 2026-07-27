@@ -4,6 +4,7 @@ const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = r
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
+const paymentService = require('../services/paymentService');
 const {
   requireArray, validateLineItem, validateDocumentTotals,
   oneOf, optionalDate, pageParams,
@@ -208,10 +209,16 @@ function createSaleCore(body, userId) {
   if (paid > 0 && status === 'completed') {
     const payNum = numberService.nextNumber('payment_in');
     const paymentMode = body.payment_mode || 'cash';
-    db.prepare(`
+    const payRes = db.prepare(`
       INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, sale_id, created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?)
     `).run(payNum, 'payment_in', 'customer', body.customer_id || null, date, paid, paymentMode, body.bank_account_id || null, saleId, userId);
+
+    // The amount is already on the invoice, so record it as settled against
+    // this invoice too. Without the allocation row the party balance would
+    // subtract it a second time as an unapplied advance.
+    db.prepare('INSERT INTO payment_allocations (payment_id, sale_id, amount) VALUES (?,?,?)')
+      .run(payRes.lastInsertRowid, saleId, paid);
 
     if (body.bank_account_id) {
       partyService.updateBankBalance(body.bank_account_id, paid, 'credit');
@@ -288,6 +295,9 @@ function cancel(req, res) {
     }
 
     db.prepare("UPDATE sales SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now(), sale.id);
+    // Money settled against this invoice moves to the customer's other open
+    // bills, or back onto their account as credit.
+    paymentService.releaseDocument('payment_in', sale.id);
     if (sale.customer_id) partyService.updateCustomerBalance(sale.customer_id);
     return sale;
   });
