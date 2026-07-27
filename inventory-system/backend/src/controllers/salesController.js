@@ -19,8 +19,20 @@ function list(req, res) {
     let where = 'WHERE 1=1';
     const params = [];
 
-    if (type) { where += ' AND s.invoice_type = ?'; params.push(type); }
-    else { where += " AND s.invoice_type IN ('sale','pos')"; }
+    // `type` may be a comma-separated list so one screen can show several
+    // document kinds — Sale Invoices lists counter (POS) bills alongside
+    // regular invoices, because a POS sale *is* a sale.
+    const types = String(type || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const validTypes = types.filter((x) => SALE_TYPES.includes(x));
+    if (types.length && !validTypes.length) {
+      return error(res, `Invoice type must be one of: ${SALE_TYPES.join(', ')}`, 400, null, 'ERR_INVALID_ENUM');
+    }
+    if (validTypes.length) {
+      where += ` AND s.invoice_type IN (${validTypes.map(() => '?').join(',')})`;
+      params.push(...validTypes);
+    } else {
+      where += " AND s.invoice_type IN ('sale','pos')";
+    }
     if (status) { where += ' AND s.status = ?'; params.push(status); }
     if (payment_status) { where += ' AND s.payment_status = ?'; params.push(payment_status); }
     if (customer_id) { where += ' AND s.customer_id = ?'; params.push(customer_id); }

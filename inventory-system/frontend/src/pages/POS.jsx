@@ -135,12 +135,21 @@ export default function POS() {
           <div className="pos-product-grid">
             {filtered.map((p) => (
               <div key={p.id} className="pos-product-card" onClick={() => addToCart(p)}>
-                <div style={{
-                  width: 48, height: 48, borderRadius: 10, margin: '0 auto 8px',
-                  background: 'linear-gradient(135deg, var(--primary-light), var(--primary))',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontWeight: 700, fontSize: 16,
-                }}>{p.name[0]}</div>
+                {p.image ? (
+                  <img
+                    src={p.image}
+                    alt={p.name}
+                    loading="lazy"
+                    style={{ width: 48, height: 48, borderRadius: 10, margin: '0 auto 8px', display: 'block', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 10, margin: '0 auto 8px',
+                    background: 'linear-gradient(135deg, var(--primary-light), var(--primary))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 700, fontSize: 16,
+                  }}>{p.name[0]}</div>
+                )}
                 <div className="name">{p.name}</div>
                 <div className="price">{formatMoney(p.selling_price)}</div>
                 <div className="stock">Stock: {p.current_stock}</div>

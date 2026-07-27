@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, QrCode } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, QrCode, ImagePlus, X } from 'lucide-react';
 import { productsAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -15,6 +15,9 @@ const empty = {
   mrp: '', tax_rate: '18', min_stock: '5', opening_stock: '0', is_service: false,
 };
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = /\.(jpe?g|png|gif|webp)$/i;
+
 export default function Products() {
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, limit: 20 });
@@ -27,6 +30,8 @@ export default function Products() {
   const [categories, setCategories] = useState([]);
   const [brands, setBrands] = useState([]);
   const [units, setUnits] = useState([]);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
   const [qrModal, setQrModal] = useState(null);
   const [allBarcodesModal, setAllBarcodesModal] = useState(false);
   const [allBarcodesList, setAllBarcodesList] = useState([]);
@@ -57,7 +62,19 @@ export default function Products() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const openCreate = () => { setForm(empty); setEditId(null); setModal(true); };
+  const openCreate = () => {
+    setForm(empty); setEditId(null); setImageFile(null); setImagePreview(''); setModal(true);
+  };
+
+  const pickImage = (file) => {
+    if (!file) return;
+    if (!IMAGE_TYPES.test(file.name)) return error(t('Only JPG, PNG, GIF or WebP images are allowed'));
+    if (file.size > MAX_IMAGE_BYTES) return error(t('Image must be smaller than 5 MB'));
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const clearImage = () => { setImageFile(null); setImagePreview(''); };
   const openEdit = (p) => {
     setForm({
       name: p.name, sku: p.sku || '', barcode: p.barcode || '', hsn_code: p.hsn_code || '',
@@ -65,8 +82,11 @@ export default function Products() {
       unit_id: p.unit_id || '', purchase_price: p.purchase_price, selling_price: p.selling_price,
       mrp: p.mrp, tax_rate: p.tax_rate, min_stock: p.min_stock, opening_stock: p.current_stock,
       is_service: !!p.is_service,
+      image: p.image || '',
     });
     setEditId(p.id);
+    setImageFile(null);
+    setImagePreview(p.image || '');
     setModal(true);
   };
 
@@ -85,7 +105,10 @@ export default function Products() {
         tax_rate: Number(form.tax_rate) || 0,
         min_stock: Number(form.min_stock) || 0,
         opening_stock: Number(form.opening_stock) || 0,
+        // A File switches the request to multipart; '' clears an existing photo.
+        image: imageFile || (imagePreview ? undefined : ''),
       };
+      if (payload.image === undefined) delete payload.image;
       if (editId) {
         await productsAPI.update(editId, payload);
         success(t('Product updated'));
@@ -160,13 +183,18 @@ export default function Products() {
               <table>
                 <thead>
                   <tr>
-                    <th>{t('Name')}</th><th>{t('SKU')}</th><th>{t('Category')}</th><th>{t('Purchase')}</th><th>{t('Selling')}</th>
+                    <th>{t('Photo')}</th><th>{t('Name')}</th><th>{t('SKU')}</th><th>{t('Category')}</th><th>{t('Purchase')}</th><th>{t('Selling')}</th>
                     <th>{t('Stock')}</th><th>{t('Tax')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
+                      <td>
+                        <div className="product-thumb">
+                          {p.image ? <img src={p.image} alt={p.name} loading="lazy" /> : <ImagePlus size={16} />}
+                        </div>
+                      </td>
                       <td style={{ fontWeight: 500 }}>{p.name}</td>
                       <td>{p.sku || '—'}</td>
                       <td>{p.category_name || '—'}</td>
@@ -203,6 +231,33 @@ export default function Products() {
           </>
         }
       >
+        <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div className="product-photo">
+            {imagePreview
+              ? <img src={imagePreview} alt={form.name || t('Product Photo')} />
+              : <ImagePlus size={26} />}
+          </div>
+          <div>
+            <label className="form-label">{t('Product Photo')}</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer', marginBottom: 0 }}>
+                <ImagePlus size={16} /> {imagePreview ? t('Change Photo') : t('Upload Photo')}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => { pickImage(e.target.files?.[0]); e.target.value = ''; }}
+                />
+              </label>
+              {imagePreview && (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={clearImage}>
+                  <X size={16} /> {t('Remove Photo')}
+                </button>
+              )}
+            </div>
+            <div className="form-hint">{t('JPG, PNG, GIF or WebP up to 5 MB')}</div>
+          </div>
+        </div>
         <div className="form-row">
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
             <label className="form-label">{t('Product Name')}<span className="required">*</span></label>

@@ -25,6 +25,7 @@ const Customers = lazy(() => import('./pages/Parties').then((m) => ({ default: m
 const Suppliers = lazy(() => import('./pages/Parties').then((m) => ({ default: m.Suppliers })));
 
 const Categories = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Categories })));
+const Brands = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Brands })));
 const Warehouses = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Warehouses })));
 const LowStock = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.LowStock })));
 const StockTransfer = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.StockTransfer })));
@@ -77,6 +78,7 @@ function AppRoutes() {
 
           <Route path="products" element={<Products />} />
           <Route path="categories" element={<Categories />} />
+          <Route path="brands" element={<Brands />} />
           <Route path="warehouses" element={<Warehouses />} />
           <Route path="stock-transfer" element={<StockTransfer />} />
           <Route path="stock-adjustment" element={<StockAdjustment />} />

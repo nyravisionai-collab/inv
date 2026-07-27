@@ -4,6 +4,7 @@ const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = r
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
+const productService = require('../services/productService');
 const {
   requireArray, validateLineItem, validateDocumentTotals,
   oneOf, optionalDate, pageParams,
@@ -99,9 +100,29 @@ function create(req, res) {
     const processedItems = items.map((item, index) => {
       const v = validateLineItem(item, index);
       const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
+
+      // A bill may name an item that is not in the catalogue yet. Match it by
+      // name and, when it is genuinely new, create the product so the stock
+      // movement and the purchase price are not lost.
+      let productId = item.product_id || null;
+      if (!productId && bill_type !== 'purchase_return') {
+        const linked = productService.findOrCreateByName({
+          ...item,
+          unit_price: v.unitPrice,
+          tax_rate: v.taxRate,
+          tax_type: v.taxType,
+        });
+        if (linked) productId = linked.id;
+      } else if (!productId) {
+        const linked = productService.findByName(item.product_name || item.name);
+        if (linked) productId = linked.id;
+      }
+
       return {
-        product_id: item.product_id || null,
+        product_id: productId,
         product_name: item.product_name || item.name,
+        mrp: item.mrp !== undefined ? Number(item.mrp) || 0 : 0,
+        selling_price: item.selling_price !== undefined ? Number(item.selling_price) || 0 : 0,
         hsn_code: item.hsn_code || null,
         batch_number: item.batch_number || null,
         expiry_date: optionalDate(item.expiry_date, `Item ${index + 1} expiry date`),
@@ -172,11 +193,15 @@ function create(req, res) {
                 `).run(item.product_id, wh, item.batch_number, item.expiry_date, item.quantity, item.unit_price);
               }
             }
-            // Update purchase price
-            db.prepare('UPDATE products SET purchase_price = ?, updated_at = ? WHERE id = ?').run(item.unit_price, now(), item.product_id);
           } else if (bill_type === 'purchase_return') {
             stockService.reduceStock(item.product_id, item.quantity, wh);
           }
+        }
+        // The rate actually paid becomes the product's purchase price (plus
+        // MRP / selling price when the bill carries them) so stock valuation,
+        // margins and the next bill all start from the latest cost.
+        if (bill_type === 'purchase') {
+          productService.applyPurchasePricing(item.product_id, item);
         }
       }
     }

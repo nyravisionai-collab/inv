@@ -17,6 +17,11 @@ const TYPE_MAP = {
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
+const emptyLine = {
+  product_id: '', product_name: '', quantity: 1, unit_price: 0, mrp: '', tax_rate: 0,
+  discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '',
+};
+
 function PurchaseList() {
   const location = useLocation();
   const cfg = TYPE_MAP[location.pathname] || TYPE_MAP['/purchases'];
@@ -109,27 +114,47 @@ function PurchaseForm() {
     supplier_id: '', bill_date: today(), due_date: '', supplier_invoice: '',
     discount_type: 'amount', discount_value: 0, notes: '', paid_amount: 0, payment_mode: 'cash',
   });
-  const [items, setItems] = useState([{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '' }]);
+  const [items, setItems] = useState([{ ...emptyLine }]);
 
   useEffect(() => {
     suppliersAPI.list({ limit: 100 }).then((r) => setSuppliers(r.data.data)).catch(() => {});
     productsAPI.list({ limit: 100 }).then((r) => setProducts(r.data.data)).catch(() => {});
   }, []);
 
+  /** Copy master data onto a line once it is linked to a known product. */
+  const fillFromProduct = (line, p) => {
+    line.product_id = p.id;
+    line.product_name = p.name;
+    line.unit_price = p.purchase_price;
+    line.tax_rate = p.tax_rate || 0;
+    line.mrp = p.mrp || '';
+    line.hsn_code = p.hsn_code;
+    line.unit_id = p.unit_id;
+  };
+
   const updateItem = (idx, field, val) => {
     const next = [...items];
     next[idx] = { ...next[idx], [field]: val };
     if (field === 'product_id') {
       const p = products.find((x) => x.id === Number(val));
-      if (p) {
-        next[idx].product_name = p.name;
-        next[idx].unit_price = p.purchase_price;
-        next[idx].tax_rate = p.tax_rate || 0;
-        next[idx].hsn_code = p.hsn_code;
-        next[idx].unit_id = p.unit_id;
-      }
+      if (p) fillFromProduct(next[idx], p);
+    }
+    if (field === 'product_name') {
+      // The name box is free text: a match links the line to the existing
+      // product, anything else is treated as a new item and is created by the
+      // server when the bill is saved.
+      const match = products.find(
+        (x) => x.name.trim().toLowerCase() === String(val).trim().toLowerCase()
+      );
+      if (match) fillFromProduct(next[idx], match);
+      else next[idx].product_id = '';
     }
     setItems(next);
+  };
+
+  const isNewProduct = (item) => {
+    const name = String(item.product_name || '').trim();
+    return !!name && !item.product_id;
   };
 
   const calcItemTotal = (item) => {
@@ -149,7 +174,8 @@ function PurchaseForm() {
     try {
       const res = await purchasesAPI.create({
         ...form, bill_type: cfg.type, supplier_id: form.supplier_id || null,
-        items: validItems, paid_amount: Number(form.paid_amount) || 0,
+        items: validItems.map((i) => ({ ...i, mrp: Number(i.mrp) || 0 })),
+        paid_amount: Number(form.paid_amount) || 0,
         discount_value: Number(form.discount_value) || 0, status: 'completed',
       });
       success(`Created: ${res.data.data.bill_number}`);
@@ -189,22 +215,33 @@ function PurchaseForm() {
           </div>
         </div>
       </div>
+      <datalist id="purchase-product-options">
+        {products.map((p) => <option key={p.id} value={p.name} />)}
+      </datalist>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header"><div className="card-title">{t('Items')}</div></div>
         <div className="table-wrap">
           <table className="items-table">
-            <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
+            <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('MRP')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
             <tbody>
               {items.map((item, idx) => (
                 <tr key={idx}>
                   <td>
-                    <select className="form-control" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} style={{ height: 34 }}>
-                      <option value="">{t('Select')}</option>
-                      {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <input
+                      className="form-control"
+                      list="purchase-product-options"
+                      style={{ height: 34, minWidth: 180 }}
+                      placeholder={t('Type or select product')}
+                      value={item.product_name}
+                      onChange={(e) => updateItem(idx, 'product_name', e.target.value)}
+                    />
+                    {isNewProduct(item) && (
+                      <div className="form-hint" style={{ color: 'var(--primary)' }}>{t('New product — will be added automatically')}</div>
+                    )}
                   </td>
                   <td><input className="form-control" type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
                   <td><input className="form-control" type="number" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
+                  <td><input className="form-control" type="number" value={item.mrp} onChange={(e) => updateItem(idx, 'mrp', e.target.value)} placeholder={t('MRP')} /></td>
                   <td><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
                   <td><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
                   <td style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
@@ -215,7 +252,7 @@ function PurchaseForm() {
           </table>
         </div>
         <div style={{ padding: 12 }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '' }])}>+ Add Row</button>
+          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { ...emptyLine }])}>+ Add Row</button>
         </div>
       </div>
       <div className="card">

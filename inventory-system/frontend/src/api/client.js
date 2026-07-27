@@ -19,11 +19,32 @@ export const dashboardAPI = {
   get: () => api.get('/dashboard'),
 };
 
+/**
+ * Products accept an optional photo, so the payload is sent as multipart
+ * whenever a File is present and as plain JSON otherwise (keeps the simple
+ * JSON path — and its tests — unchanged).
+ */
+function toProductPayload(data) {
+  if (!data || !(data.image instanceof File)) return { data, config: undefined };
+  const fd = new FormData();
+  Object.entries(data).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    fd.append(key, value instanceof File ? value : String(value));
+  });
+  return { data: fd, config: { headers: { 'Content-Type': 'multipart/form-data' } } };
+}
+
 export const productsAPI = {
   list: (params) => api.get('/products', { params }),
   get: (id) => api.get(`/products/${id}`),
-  create: (data) => api.post('/products', data),
-  update: (id, data) => api.put(`/products/${id}`, data),
+  create: (data) => {
+    const { data: body, config } = toProductPayload(data);
+    return api.post('/products', body, config);
+  },
+  update: (id, data) => {
+    const { data: body, config } = toProductPayload(data);
+    return api.put(`/products/${id}`, body, config);
+  },
   remove: (id) => api.delete(`/products/${id}`),
   barcode: (code) => api.get(`/products/barcode/${code}`),
   generateBarcode: (id) => api.get(`/products/${id}/barcode`),
