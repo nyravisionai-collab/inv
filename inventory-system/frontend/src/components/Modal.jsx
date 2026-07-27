@@ -3,6 +3,14 @@ import { X } from 'lucide-react';
 
 export default function Modal({ open, onClose, title, children, footer, size = '', initialFocusRef }) {
   const modalRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  // Most callers pass an inline close handler. Keep the latest handler in a
+  // ref so changing its identity does not tear down and recreate the modal's
+  // focus effect on every form-state update (for example, every keystroke).
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) {
@@ -22,7 +30,7 @@ export default function Modal({ open, onClose, title, children, footer, size = '
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose?.();
+        onCloseRef.current?.();
       }
     };
 
@@ -33,7 +41,7 @@ export default function Modal({ open, onClose, title, children, footer, size = '
       document.body.style.overflow = '';
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose, initialFocusRef]);
+  }, [open, initialFocusRef]);
 
   if (!open) return null;
 
