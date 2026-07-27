@@ -8,8 +8,11 @@ import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
+import { withRowId } from '../utils/rowId';
 
 function today() { return new Date().toISOString().slice(0, 10); }
+
+const emptyJournalLine = { account_name: '', debit: '', credit: '' };
 
 export function Expenses() {
   const [items, setItems] = useState([]);
@@ -29,12 +32,19 @@ export function Expenses() {
   };
   useEffect(() => { load(); accountingAPI.banks().then((r) => setBanks(r.data.data)).catch(() => {}); }, []);
 
+  const emptyForm = () => ({ category: '', expense_date: today(), amount: '', payment_mode: 'cash', description: '' });
+
   const save = async () => {
+    if (saving) return undefined;
     if (!form.category || !form.amount) return error(t('Category and amount required'));
+    if (!(Number(form.amount) > 0)) return error(t('Enter valid amount'));
     setSaving(true);
     try {
       await accountingAPI.createExpense({ ...form, amount: Number(form.amount) });
-      success(t('Expense recorded')); setModal(false); load();
+      success(t('Expense recorded'));
+      setModal(false);
+      setForm(emptyForm());
+      load();
     } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
@@ -130,11 +140,16 @@ export function Incomes() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
+    if (saving) return undefined;
     if (!form.category || !form.amount) return error(t('Category and amount required'));
+    if (!(Number(form.amount) > 0)) return error(t('Enter valid amount'));
     setSaving(true);
     try {
       await accountingAPI.createIncome({ ...form, amount: Number(form.amount) });
-      success(t('Income recorded')); setModal(false); load();
+      success(t('Income recorded'));
+      setModal(false);
+      setForm({ category: '', income_date: today(), amount: '', payment_mode: 'cash', description: '' });
+      load();
     } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
@@ -198,6 +213,7 @@ export function Banks() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ account_name: '', bank_name: '', account_number: '', ifsc: '', account_type: 'bank', opening_balance: 0 });
+  const [saving, setSaving] = useState(false);
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
 
@@ -208,11 +224,17 @@ export function Banks() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
+    if (saving) return undefined;
     if (!form.account_name) return error(t('Name required'));
+    setSaving(true);
     try {
       await accountingAPI.createBank({ ...form, opening_balance: Number(form.opening_balance) || 0 });
-      success(t('Account created')); setModal(false); load();
+      success(t('Account created'));
+      setModal(false);
+      setForm({ account_name: '', bank_name: '', account_number: '', ifsc: '', account_type: 'bank', opening_balance: 0 });
+      load();
     } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
+    finally { setSaving(false); }
   };
 
   const total = items.reduce((s, b) => s + b.current_balance, 0);
@@ -258,7 +280,7 @@ export function Banks() {
         )}
       </div>
       <Modal open={modal} onClose={() => setModal(false)} title="Add Account"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save}>{t('Save')}</button></>}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button></>}
       >
         <div className="form-group"><label className="form-label">{t('Account Name')}</label><input className="form-control" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} /></div>
         <div className="form-row">
@@ -343,9 +365,9 @@ export function Journals() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ entry_date: today(), entry_type: 'journal', narration: '' });
-  const [lines, setLines] = useState([
-    { account_name: '', debit: '', credit: '' },
-    { account_name: '', debit: '', credit: '' },
+  const [lines, setLines] = useState(() => [
+    withRowId(emptyJournalLine),
+    withRowId(emptyJournalLine),
   ]);
   const [saving, setSaving] = useState(false);
   const { formatMoney, t } = useAuth();
@@ -357,8 +379,14 @@ export function Journals() {
   };
   useEffect(() => { load(); }, []);
 
+  /** Patch one journal line without mutating the array already in state. */
+  const updateLine = (idx, patch) => {
+    setLines((prev) => prev.map((line, i) => (i === idx ? { ...line, ...patch } : line)));
+  };
+
   const save = async () => {
-    const valid = lines.filter((l) => l.account_name);
+    if (saving) return undefined;
+    const valid = lines.filter((l) => String(l.account_name || '').trim());
     if (valid.length < 2) return error(t('At least 2 lines required'));
     setSaving(true);
     try {
@@ -366,7 +394,13 @@ export function Journals() {
         ...form,
         lines: valid.map((l) => ({ account_name: l.account_name, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })),
       });
-      success(t('Journal entry created')); setModal(false); load();
+      success(t('Journal entry created'));
+      setModal(false);
+      // Reset, otherwise the next "New Entry" opens with the previous lines
+      // still filled in and the user silently posts a duplicate.
+      setForm({ entry_date: today(), entry_type: 'journal', narration: '' });
+      setLines([withRowId(emptyJournalLine), withRowId(emptyJournalLine)]);
+      load();
     } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
     finally { setSaving(false); }
   };
@@ -421,22 +455,22 @@ export function Journals() {
           <input className="form-control" value={form.narration} onChange={(e) => setForm({ ...form, narration: e.target.value })} />
         </div>
         {lines.map((line, idx) => (
-          <div className="form-row" key={idx}>
+          <div className="form-row" key={line._rid}>
             <div className="form-group" style={{ flex: 2 }}>
               <label className="form-label">{t('Account')}</label>
-              <input className="form-control" value={line.account_name} onChange={(e) => { const n = [...lines]; n[idx].account_name = e.target.value; setLines(n); }} placeholder={t('Account name')} />
+              <input className="form-control" value={line.account_name} onChange={(e) => updateLine(idx, { account_name: e.target.value })} placeholder={t('Account name')} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('Debit')}</label>
-              <input className="form-control" type="number" value={line.debit} onChange={(e) => { const n = [...lines]; n[idx].debit = e.target.value; n[idx].credit = ''; setLines(n); }} />
+              <input className="form-control" type="number" min="0" value={line.debit} onChange={(e) => updateLine(idx, { debit: e.target.value, credit: '' })} />
             </div>
             <div className="form-group">
               <label className="form-label">{t('Credit')}</label>
-              <input className="form-control" type="number" value={line.credit} onChange={(e) => { const n = [...lines]; n[idx].credit = e.target.value; n[idx].debit = ''; setLines(n); }} />
+              <input className="form-control" type="number" min="0" value={line.credit} onChange={(e) => updateLine(idx, { credit: e.target.value, debit: '' })} />
             </div>
           </div>
         ))}
-        <button className="btn btn-sm btn-secondary" onClick={() => setLines([...lines, { account_name: '', debit: '', credit: '' }])}>+ Add Line</button>
+        <button className="btn btn-sm btn-secondary" onClick={() => setLines((prev) => [...prev, withRowId(emptyJournalLine)])}>+ Add Line</button>
       </Modal>
     </div>
   );

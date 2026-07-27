@@ -1,7 +1,7 @@
 {
   "name": "inventory-management-system",
   "version": "1.1.0",
-  "description": "Termux-compatible Inventory Management System — React + Express + sql.js",
+  "description": "Termux-compatible Inventory Management System \u2014 React + Express + sql.js",
   "private": true,
   "scripts": {
     "setup": "bash scripts/install.sh",
@@ -22,7 +22,8 @@
     "lint:sh": "shellcheck -x -s bash START.sh STOP.sh RUN.sh scripts/*.sh",
     "test:sh": "bash scripts/test-scripts.sh",
     "i18n:check": "npm run i18n:check --prefix frontend",
-    "verify": "npm run lint && npm test && npm run i18n:check && npm run build"
+    "verify": "npm run lint && npm test && npm run test:frontend && npm run i18n:check && npm run build",
+    "test:frontend": "npm test --prefix frontend"
   },
   "engines": {
     "node": ">=18.0.0"

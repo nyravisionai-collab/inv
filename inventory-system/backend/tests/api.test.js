@@ -706,7 +706,7 @@ describe('Inventory API (no-auth offline mode)', () => {
   it('rejects stock transfers that would make a warehouse negative', async () => {
     const wh = await req('POST', '/warehouses', { name: 'Audit Transfer WH', code: 'ATW' });
     const prod = await req('POST', '/products', {
-      name: 'Audit Transfer Guard Item', sku: 'ATG-1', selling_price: 10, purchase_price: 5, opening_stock: 5,
+      name: `Audit Transfer Guard Item ${Date.now()}`, sku: `ATG-${Date.now()}`, selling_price: 10, purchase_price: 5, opening_stock: 5,
     });
     const transfer = await req('POST', '/stock/transfers', {
       from_warehouse_id: 1, to_warehouse_id: wh.data.data.id,
@@ -789,6 +789,123 @@ describe('Inventory API (no-auth offline mode)', () => {
     const s = await req('POST', '/suppliers', { name: 'Audit Opening Debit Supp', opening_balance: 100, balance_type: 'debit' });
     assert.strictEqual(s.data.data.current_balance, -100);
     assert.strictEqual((await req('GET', `/suppliers/${s.data.data.id}/ledger`)).data.data.closing_balance, -100);
+  });
+
+  // ---------------------------------------------------------------------
+  // Regression tests for the audit fixes
+  // ---------------------------------------------------------------------
+
+  it('issues a fresh expense number after an expense is deleted', async () => {
+    const a = await req('POST', '/expenses', { category: 'Rent', amount: 100 });
+    const b = await req('POST', '/expenses', { category: 'Rent', amount: 200 });
+    const c = await req('POST', '/expenses', { category: 'Rent', amount: 300 });
+    for (const r of [a, b, c]) assert.strictEqual(r.status, 201);
+
+    // Deleting a row from the middle used to make COUNT(*)+1 land on a number
+    // that the newest row still holds, so the *next* expense died with a
+    // UNIQUE constraint error.
+    assert.strictEqual((await req('DELETE', `/expenses/${b.data.data.id}`)).status, 200);
+
+    const d = await req('POST', '/expenses', { category: 'Rent', amount: 400 });
+    assert.strictEqual(d.status, 201, JSON.stringify(d.data));
+    const used = [a, c].map((r) => r.data.data.expense_number);
+    assert.ok(!used.includes(d.data.data.expense_number), d.data.data.expense_number);
+  });
+
+  it('rejects non-positive and non-numeric expense/income amounts', async () => {
+    const neg = await req('POST', '/expenses', { category: 'Rent', amount: -500 });
+    assert.strictEqual(neg.status, 400);
+    assert.ok(['ERR_TOO_SMALL', 'ERR_AMOUNT_POSITIVE'].includes(neg.data.code), neg.data.code);
+
+    const nan = await req('POST', '/expenses', { category: 'Rent', amount: 'abc' });
+    assert.strictEqual(nan.status, 400);
+    assert.strictEqual(nan.data.code, 'ERR_NOT_NUMBER');
+
+    const negIncome = await req('POST', '/incomes', { category: 'Interest', amount: -99 });
+    assert.strictEqual(negIncome.status, 400);
+    assert.ok(['ERR_TOO_SMALL', 'ERR_AMOUNT_POSITIVE'].includes(negIncome.data.code), negIncome.data.code);
+  });
+
+  it('rejects journal entries with negative amounts or blank accounts', async () => {
+    const negative = await req('POST', '/journals', {
+      lines: [{ account_name: 'A', debit: -100 }, { account_name: 'B', credit: -100 }],
+    });
+    // -100 vs -100 "balanced" perfectly and used to be accepted.
+    assert.strictEqual(negative.status, 400);
+
+    const blank = await req('POST', '/journals', {
+      lines: [{ account_name: '', debit: 50 }, { account_name: 'B', credit: 50 }],
+    });
+    assert.strictEqual(blank.status, 400);
+    assert.strictEqual(blank.data.code, 'ERR_REQUIRED');
+
+    const zero = await req('POST', '/journals', {
+      lines: [{ account_name: 'A', debit: 0 }, { account_name: 'B', credit: 0 }],
+    });
+    assert.strictEqual(zero.status, 400);
+
+    const ok = await req('POST', '/journals', {
+      lines: [{ account_name: 'Cash', debit: 100 }, { account_name: 'Sales', credit: 100 }],
+    });
+    assert.strictEqual(ok.status, 201);
+  });
+
+  it('rejects payments with an invalid type or amount instead of a raw 500', async () => {
+    const badType = await req('POST', '/payments', { payment_type: 'bogus', amount: 100 });
+    assert.strictEqual(badType.status, 400);
+    assert.strictEqual(badType.data.code, 'ERR_INVALID_ENUM');
+
+    const nan = await req('POST', '/payments', { payment_type: 'payment_in', amount: 'abc' });
+    assert.strictEqual(nan.status, 400);
+    assert.strictEqual(nan.data.code, 'ERR_NOT_NUMBER');
+
+    const negative = await req('POST', '/payments', { payment_type: 'payment_in', amount: -50 });
+    assert.strictEqual(negative.status, 400);
+  });
+
+  it('does not destroy stock when a transfer carries a non-numeric quantity', async () => {
+    const product = await req('POST', '/products', {
+      name: 'Audit Transfer Guard Item', sku: 'ATG-1', purchase_price: 5, selling_price: 9, opening_stock: 50,
+    });
+    assert.strictEqual(product.status, 201, JSON.stringify(product.data));
+    const pid = product.data.data.id;
+    await req('POST', '/warehouses', { name: `Audit Transfer Guard WH ${Date.now()}`, code: `ATGWH${Date.now()}` });
+    const warehouses = (await req('GET', '/warehouses')).data.data;
+
+    const bad = await req('POST', '/stock/transfers', {
+      from_warehouse_id: warehouses[0].id,
+      to_warehouse_id: warehouses[warehouses.length - 1].id,
+      items: [{ product_id: pid, quantity: 'abc' }],
+    });
+    // NaN used to pass the `Number(x) <= 0` check and zero out the stock row.
+    assert.strictEqual(bad.status, 400);
+    assert.strictEqual((await req('GET', `/products/${pid}`)).data.data.current_stock, 50);
+  });
+
+  it('rejects transfers into a warehouse that does not exist', async () => {
+    const product = await req('POST', '/products', {
+      name: `Audit Ghost WH Item ${Date.now()}`, sku: `AGW-${Date.now()}`, purchase_price: 5, selling_price: 9, opening_stock: 20,
+    });
+    const pid = product.data.data.id;
+    const warehouses = (await req('GET', '/warehouses')).data.data;
+
+    const res = await req('POST', '/stock/transfers', {
+      from_warehouse_id: warehouses[0].id,
+      to_warehouse_id: 999999,
+      items: [{ product_id: pid, quantity: 2 }],
+    });
+    // Previously succeeded and silently vaporised the transferred quantity.
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.data.code, 'ERR_NOT_FOUND');
+    assert.strictEqual((await req('GET', `/products/${pid}`)).data.data.current_stock, 20);
+  });
+
+  it('rejects stock adjustments for a product that does not exist', async () => {
+    const res = await req('POST', '/stock/adjustments', {
+      items: [{ product_id: 999999, new_qty: 5 }],
+    });
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.data.code, 'ERR_NOT_FOUND');
   });
 
 });

@@ -106,6 +106,8 @@ export default function POS() {
     : products;
 
   const checkout = async () => {
+    // Guard against a double tap on the Charge button creating two bills.
+    if (saving) return undefined;
     if (!cart.length) return error(t('Cart is empty'));
     setSaving(true);
     try {
@@ -203,7 +205,7 @@ export default function POS() {
               </div>
             )}
             {cart.map((item, idx) => (
-              <div key={idx} className="pos-cart-line">
+              <div key={item.product_id} className="pos-cart-line">
                 <div>
                   <div className="pos-cart-line-name">{item.product_name}</div>
                   <div className="pos-cart-line-meta">{formatMoney(item.unit_price)} × {item.quantity}</div>

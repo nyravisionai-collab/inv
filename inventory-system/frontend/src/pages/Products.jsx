@@ -91,7 +91,8 @@ export default function Products() {
   };
 
   const save = async () => {
-    if (!form.name) return error(t('Product name is required'));
+    if (saving) return undefined;
+    if (!String(form.name || '').trim()) return error(t('Product name is required'));
     setSaving(true);
     try {
       const payload = {

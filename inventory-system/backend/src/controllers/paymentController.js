@@ -1,6 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
-const { pageParams } = require('../utils/validate');
+const { pageParams, toNumber, oneOf, optionalDate } = require('../utils/validate');
 const { today, round2, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const partyService = require('../services/partyService');
@@ -61,15 +61,24 @@ function getById(req, res) {
 function create(req, res) {
   const txn = db.transaction(() => {
     const {
-      payment_type, party_type, party_id, payment_date, amount,
-      payment_mode = 'cash', bank_account_id, reference_number,
+      party_id, payment_mode = 'cash', bank_account_id, reference_number,
       cheque_number, cheque_date, notes, sale_id, purchase_id,
     } = req.body;
 
-    if (!payment_type || !amount || amount <= 0) throw new Error('Payment type and valid amount required');
+    // Validate before touching the database: an unknown payment_type used to
+    // fall through to a raw SQLite CHECK-constraint 500, and a NaN amount was
+    // inserted as NULL.
+    const payment_type = oneOf(req.body.payment_type, ['payment_in', 'payment_out'], 'Payment type');
+    const party_type = req.body.party_type
+      ? oneOf(req.body.party_type, ['customer', 'supplier'], 'Party type')
+      : null;
+    const amount = toNumber(req.body.amount, 'Amount', { min: 0 });
+    if (amount <= 0) {
+      throw Object.assign(new Error('Amount must be greater than zero'), { status: 400, code: 'ERR_AMOUNT_POSITIVE' });
+    }
 
     const payNum = numberService.nextNumber(payment_type);
-    const date = payment_date || today();
+    const date = optionalDate(req.body.payment_date, 'Payment date') || today();
 
     let baId = bank_account_id;
     if (!baId) {
@@ -81,7 +90,7 @@ function create(req, res) {
       INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, reference_number, cheque_number, cheque_date, notes, sale_id, purchase_id, created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      payNum, payment_type, party_type || null, party_id || null, date, Number(amount),
+      payNum, payment_type, party_type || null, party_id || null, date, amount,
       payment_mode, baId, reference_number || null, cheque_number || null, cheque_date || null,
       notes || null, sale_id || null, purchase_id || null, req.user.id
     );
@@ -111,7 +120,7 @@ function create(req, res) {
     const payment = txn();
     return success(res, payment, 'Payment recorded', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 

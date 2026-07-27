@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { calcLineTotal, calcInvoiceTotals } from '../utils/money';
+import { withRowId } from '../utils/rowId';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -22,6 +23,11 @@ const TYPE_MAP = {
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
+
+const emptyLine = {
+  product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0,
+  tax_type: 'exclusive', discount_value: 0, discount_type: 'amount',
+};
 
 function SalesList() {
   const location = useLocation();
@@ -141,7 +147,7 @@ function SaleForm() {
     discount_type: 'amount', discount_value: 0, shipping_charges: 0,
     notes: '', paid_amount: 0, payment_mode: 'cash',
   });
-  const [items, setItems] = useState([{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }]);
+  const [items, setItems] = useState(() => [withRowId(emptyLine)]);
   const [productSearch, setProductSearch] = useState('');
 
   useEffect(() => {
@@ -151,13 +157,16 @@ function SaleForm() {
   }, []);
 
   const addItem = (product) => {
-    const exists = items.findIndex((i) => i.product_id === product.id);
-    if (exists >= 0) {
-      const next = [...items];
-      next[exists].quantity += 1;
-      setItems(next);
-    } else {
-      const emptyIdx = items.findIndex((i) => !i.product_id);
+    setItems((prev) => {
+      const exists = prev.findIndex((i) => i.product_id === product.id);
+      if (exists >= 0) {
+        // Copy the row instead of mutating it: mutating state in place makes
+        // React skip renders and the quantity appears not to change.
+        const next = [...prev];
+        next[exists] = { ...next[exists], quantity: Number(next[exists].quantity || 0) + 1 };
+        return next;
+      }
+      const emptyIdx = prev.findIndex((i) => !i.product_id && !i.product_name);
       const newItem = {
         product_id: product.id,
         product_name: product.name,
@@ -171,40 +180,43 @@ function SaleForm() {
         unit_id: product.unit_id,
       };
       if (emptyIdx >= 0) {
-        const next = [...items];
-        next[emptyIdx] = newItem;
-        setItems(next);
-      } else {
-        setItems([...items, newItem]);
+        const next = [...prev];
+        next[emptyIdx] = { ...newItem, _rid: prev[emptyIdx]._rid };
+        return next;
       }
-    }
+      return [...prev, withRowId(newItem)];
+    });
     setProductSearch('');
   };
 
   const updateItem = (idx, field, val) => {
-    const next = [...items];
-    next[idx] = { ...next[idx], [field]: val };
-    if (field === 'product_id') {
-      const p = products.find((x) => x.id === Number(val));
-      if (p) {
-        next[idx].product_name = p.name;
-        next[idx].unit_price = p.selling_price;
-        next[idx].tax_rate = p.tax_rate || 0;
-        next[idx].tax_type = p.tax_type || 'exclusive';
-        next[idx].hsn_code = p.hsn_code;
-        next[idx].unit_id = p.unit_id;
+    setItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: val };
+      if (field === 'product_id') {
+        const p = products.find((x) => x.id === Number(val));
+        if (p) {
+          next[idx] = {
+            ...next[idx],
+            product_name: p.name,
+            unit_price: p.selling_price,
+            tax_rate: p.tax_rate || 0,
+            tax_type: p.tax_type || 'exclusive',
+            hsn_code: p.hsn_code,
+            unit_id: p.unit_id,
+          };
+        }
       }
-    }
-    setItems(next);
+      return next;
+    });
   };
 
   const addBlankItem = () => {
-    setItems((prev) => [...prev, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }]);
+    setItems((prev) => [...prev, withRowId(emptyLine)]);
   };
 
   const removeItem = (idx) => {
-    if (items.length === 1) return;
-    setItems(items.filter((_, i) => i !== idx));
+    setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)));
   };
 
   const handleItemKeyDown = (e, idx) => {
@@ -226,7 +238,11 @@ function SaleForm() {
     : [];
 
   const save = async () => {
-    const validItems = items.filter((i) => i.product_name && i.quantity > 0);
+    if (saving) return undefined;
+    // `_rid` is a client-only row key; never send it to the API.
+    const validItems = items
+      .filter((i) => i.product_name && Number(i.quantity) > 0)
+      .map(({ _rid, ...rest }) => rest);
     if (!validItems.length) return error(t('Add at least one item'));
     setSaving(true);
     try {
@@ -326,7 +342,7 @@ function SaleForm() {
               {items.map((item, idx) => {
                 const c = calcItemTotal(item);
                 return (
-                  <tr key={idx} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
+                  <tr key={item._rid} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
                     <td data-label={t('Product')}>
                       <select className="form-control" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} style={{ height: 34 }}>
                         <option value="">{t('Select product')}</option>
