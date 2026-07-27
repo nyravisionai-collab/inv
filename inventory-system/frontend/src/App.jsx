@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ConfirmProvider } from './context/ConfirmContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import ConnectionGate from './components/ConnectionGate';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 
@@ -113,15 +114,17 @@ function TranslatedErrorBoundary({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <ToastProvider>
-          <ConfirmProvider>
-            <TranslatedErrorBoundary>
-              <AppRoutes />
-            </TranslatedErrorBoundary>
-          </ConfirmProvider>
-        </ToastProvider>
-      </AuthProvider>
+      <ConnectionGate>
+        <AuthProvider>
+          <ToastProvider>
+            <ConfirmProvider>
+              <TranslatedErrorBoundary>
+                <AppRoutes />
+              </TranslatedErrorBoundary>
+            </ConfirmProvider>
+          </ToastProvider>
+        </AuthProvider>
+      </ConnectionGate>
     </BrowserRouter>
   );
 }

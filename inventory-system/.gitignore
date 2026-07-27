@@ -29,3 +29,6 @@ backend/backups/
 
 # Generated at install time from the @fontsource package
 backend/assets/fonts/
+
+# Self-signed dev TLS certs (regenerated per-machine by scripts/generate-cert.sh)
+certs/

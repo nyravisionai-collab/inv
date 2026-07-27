@@ -49,4 +49,10 @@ module.exports = {
   currency: process.env.CURRENCY || 'INR',
   currencySymbol: process.env.CURRENCY_SYMBOL || '₹',
   timezone: process.env.TIMEZONE || 'Asia/Kolkata',
+  // Serve HTTPS with the self-signed cert from scripts/generate-cert.sh.
+  // Service workers (and the PWA install prompt) require a secure context,
+  // so a phone opening this server at its LAN IP over plain HTTP will never
+  // be able to install the app even though the manifest/SW are correct.
+  https: parseBool(process.env.HTTPS, false),
 };
+

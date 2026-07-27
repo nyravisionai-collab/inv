@@ -16,10 +16,22 @@ fi
 if ! grep -q '^HOST=' backend/.env 2>/dev/null; then echo 'HOST=0.0.0.0' >> backend/.env; fi
 if ! grep -q '^PORT=' backend/.env 2>/dev/null; then echo 'PORT=5000' >> backend/.env; fi
 if ! grep -q '^LAN_ONLY=' backend/.env 2>/dev/null; then echo 'LAN_ONLY=1' >> backend/.env; fi
+if ! grep -q '^HTTPS=' backend/.env 2>/dev/null; then echo 'HTTPS=0' >> backend/.env; fi
 sed -i 's/^HOST=.*/HOST=0.0.0.0/' backend/.env 2>/dev/null || true
 sed -i 's/^PORT=.*/PORT=5000/' backend/.env 2>/dev/null || true
 LAN_ONLY_VALUE=$(grep '^LAN_ONLY=' backend/.env 2>/dev/null | tail -n 1 | cut -d= -f2-)
 export LAN_ONLY="${LAN_ONLY_VALUE:-1}"
+HTTPS_VALUE=$(grep '^HTTPS=' backend/.env 2>/dev/null | tail -n 1 | cut -d= -f2-)
+export HTTPS="${HTTPS_VALUE:-0}"
+
+# Service workers (and therefore the PWA "Install app" prompt) require a
+# secure context. Plain http://<lan-ip>:5173 on a phone can never install the
+# app even though the manifest/service worker are correct — only https:// or
+# http://localhost qualify. Generate a self-signed LAN cert whenever HTTPS=1.
+if [ "$HTTPS" = "1" ]; then
+  bash "$ROOT/scripts/generate-cert.sh"
+fi
+
 
 if [ ! -d backend/node_modules/sql.js ] && [ ! -d backend/node_modules/express ]; then
   echo "→ Installing backend dependencies..."
@@ -72,8 +84,10 @@ BACKEND_PID=$!
 echo "$BACKEND_PID" > "$ROOT/.pids"
 echo "✓ Backend PID $BACKEND_PID"
 
+if [ "$HTTPS" = "1" ]; then SCHEME="https"; CURL_HEALTH_OPTS="-k"; else SCHEME="http"; CURL_HEALTH_OPTS=""; fi
+
 for i in $(seq 1 40); do
-  if curl -sf http://127.0.0.1:5000/api/health >/dev/null 2>&1; then
+  if curl -sf $CURL_HEALTH_OPTS "$SCHEME://127.0.0.1:5000/api/health" >/dev/null 2>&1; then
     echo "✓ Backend healthy"
     break
   fi
@@ -81,7 +95,7 @@ for i in $(seq 1 40); do
 done
 
 cd "$ROOT/frontend"
-nohup npx vite --host 0.0.0.0 --port 5173 --strictPort > "$ROOT/backend/logs/frontend.log" 2>&1 &
+nohup env HTTPS="$HTTPS" npx vite --host 0.0.0.0 --port 5173 --strictPort > "$ROOT/backend/logs/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 echo "$FRONTEND_PID" >> "$ROOT/.pids"
 echo "✓ Frontend PID $FRONTEND_PID"
@@ -90,20 +104,26 @@ sleep 2
 
 echo ""
 echo "Frontend:"
-echo "  http://localhost:5173"
-echo "  http://127.0.0.1:5173"
+echo "  ${SCHEME}://localhost:5173"
+echo "  ${SCHEME}://127.0.0.1:5173"
 if [ -n "$LAN_IP" ]; then
-  echo "  http://${LAN_IP}:5173"
+  echo "  ${SCHEME}://${LAN_IP}:5173"
 fi
 echo ""
 echo "Backend:"
-echo "  http://localhost:5000"
-echo "  http://127.0.0.1:5000"
+echo "  ${SCHEME}://localhost:5000"
+echo "  ${SCHEME}://127.0.0.1:5000"
 if [ -n "$LAN_IP" ]; then
-  echo "  http://${LAN_IP}:5000"
+  echo "  ${SCHEME}://${LAN_IP}:5000"
 fi
 echo ""
+if [ "$HTTPS" = "1" ]; then
+  echo "⚠ Self-signed certificate — accept the browser warning once per device"
+  echo "  (Advanced -> Proceed) to install the app. See certs/dev.crt."
+  echo ""
+fi
 echo "Dashboard opens directly (no login)."
 echo "Logs: backend/logs/backend.log  backend/logs/frontend.log"
 echo "Stop: bash STOP.sh"
 echo ""
+
