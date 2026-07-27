@@ -1,12 +1,24 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # Generates a self-signed TLS certificate covering localhost + every LAN IP
 # currently bound to this machine, so the PWA is served over HTTPS on the
 # LAN too. Service workers (and therefore "Install app") only run in a
 # "secure context" — https://, or http://localhost — so plain
 # http://<lan-ip>:5173 on a phone can never install even though the code is
 # correct. Re-run this whenever the machine's LAN IP changes.
-set -e
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+set -euo pipefail
+# Resolve this script's real directory, following symlinks, so it can be run
+# from anywhere (including via a symlink in ~/bin). This must be inline
+# because it is what lets us find scripts/lib.sh in the first place.
+__src=${BASH_SOURCE[0]}
+while [ -L "$__src" ]; do
+  __dir=$(cd -P "$(dirname "$__src")" && pwd)
+  __src=$(readlink "$__src")
+  case $__src in /*) ;; *) __src="$__dir/$__src" ;; esac
+done
+__dir=$(cd -P "$(dirname "$__src")" && pwd)
+# shellcheck source=scripts/lib.sh
+source "$__dir/lib.sh"
+ROOT=$(cd -P "$__dir/.." && pwd)
 CERT_DIR="$ROOT/certs"
 mkdir -p "$CERT_DIR"
 
@@ -34,10 +46,8 @@ collect_ips() {
 }
 
 ALT_NAMES="DNS:localhost,IP:127.0.0.1,IP:::1"
-i=1
 for ip in $(collect_ips); do
   ALT_NAMES="${ALT_NAMES},IP:${ip}"
-  i=$((i + 1))
 done
 
 NEED_REGEN=1

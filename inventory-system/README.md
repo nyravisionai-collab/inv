@@ -7,7 +7,7 @@ A lightweight inventory management application built with a React + Vite fronten
 - **Frontend:** React, Vite
 - **Backend:** Node.js, Express
 - **Database Engine:** `sql.js` (SQLite compiled to WebAssembly)
-- **Project Scripts:** `START.sh` and `STOP.sh` for simplified local operation
+- **Project Scripts:** `RUN.sh` (one-command setup + start), `START.sh`, `STOP.sh`
 
 ## Key Features
 
@@ -32,46 +32,117 @@ The language toggle is designed to support:
 
 ### Prerequisites
 
-Install the following before running the project:
+- **Node.js 18 or newer** and npm
+- bash (Termux, Linux, macOS, or WSL)
 
-- Node.js
-- npm
-- A Unix-like shell environment for running the provided shell scripts
+`curl` and `lsof` are optional — the scripts fall back to built-in checks when
+they are missing, which matters on a bare Termux install.
 
-### Enter the Project Directory
+### First run — one command
 
-From the repository checkout root:
+From the repository checkout:
 
 ```bash
 cd inventory-system
+bash RUN.sh
 ```
 
-### Start the Application
+`RUN.sh` is the only command a new machine needs. It checks your Node version,
+installs backend and frontend dependencies, creates `backend/.env` and an empty
+database, then starts the app. On Termux it installs Node via `pkg` if it is
+missing.
 
-From the project directory:
+Every later run skips straight to starting, so `bash RUN.sh` is also fine as
+your day-to-day command.
+
+The scripts work from **any** working directory (and through a symlink), so
+this is equally valid:
 
 ```bash
-./START.sh
+bash ~/projects/inv/inventory-system/RUN.sh
 ```
 
-If the scripts are not executable on your machine, run:
+### Daily use
+
+| Command | What it does |
+| --- | --- |
+| `npm start` / `bash START.sh` | Start backend + frontend |
+| `npm stop` / `bash STOP.sh` | Stop both, and confirm the ports are free |
+| `npm run restart` / `bash START.sh --force` | Restart a running instance |
+| `npm run status` / `bash STOP.sh --status` | Show what is running and which ports are held |
+| `npm run logs` | Live-tail both log files |
+| `npm run setup` | Re-run the installer (safe; keeps your data) |
+
+Add `--foreground` to `START.sh` to keep it attached to your terminal, where
+Ctrl-C stops both services — handy over SSH or in a Termux session.
+
+### Where the logs go
+
+Both services write to `backend/logs/`, and START.sh prints these paths every
+time it runs:
+
+```text
+backend/logs/backend.log     API server output
+backend/logs/frontend.log    Vite dev server output
+```
+
+Follow them live with `npm run logs`. Each start truncates the file, so what
+you see always belongs to the current run. Process IDs live in `.run/`
+(`.run/backend.pid`, `.run/frontend.pid`); both directories are git-ignored.
+
+### Changing the ports
+
+The backend port comes from `PORT` in `backend/.env`; the scripts respect
+whatever you set there and no longer overwrite it. The frontend port is 5173 by
+default and can be overridden per run:
 
 ```bash
-chmod +x START.sh STOP.sh
-./START.sh
+FRONTEND_PORT=5174 bash START.sh
 ```
 
-The start script is the recommended way to launch the frontend and backend together.
+If a port is already taken, START.sh refuses to start, names the process
+holding it, and exits with code 3 rather than leaving you with a half-started
+app.
 
-### Stop the Application
+### Exit codes
 
-From the project directory:
+Useful when calling the scripts from another script or a service manager:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Generic failure (e.g. an unknown option) |
+| 2 | Missing dependency — Node/npm not installed or too old |
+| 3 | A required port is already in use |
+| 4 | The app is already running (use `--force` to restart) |
+| 5 | A service was launched but never became healthy |
+| 6 | A process could not be stopped |
+
+### Installer options
 
 ```bash
-./STOP.sh
+bash scripts/install.sh              # install dependencies, keep existing data
+bash scripts/install.sh --reinstall  # wipe node_modules and reinstall
+bash scripts/install.sh --reset-db   # DELETE the database (backs it up first)
+bash scripts/install.sh --no-build   # skip the production frontend build
 ```
 
-Use the stop script to shut down the locally running application processes cleanly.
+The installer is safe to re-run: it never overwrites an existing
+`backend/.env` (it only appends settings that are missing, such as a
+`LAN_ONLY` key added by a later release) and never deletes your database
+unless you pass `--reset-db`, which takes a timestamped backup into
+`backend/backups/` first.
+
+### Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| `Port 5000 is already in use` | Stop the named process, or change `PORT` in `backend/.env` |
+| `already running` (exit 4) | `bash START.sh --force`, or `bash STOP.sh` first |
+| `Backend failed to start` | The last 20 log lines are printed; full log in `backend/logs/backend.log` |
+| `Node.js >= 18 is required` | Termux: `pkg install nodejs` · Debian/Ubuntu: `sudo apt install nodejs npm` · macOS: `brew install node` |
+| `dependencies look incomplete` | An interrupted `npm install`; the scripts re-install automatically |
+| Stale PID file | Cleaned up automatically; a recycled PID is never signalled |
 
 ## Quality Checks
 
@@ -88,6 +159,8 @@ npm run lint                    # ESLint across backend and frontend
 npm test                        # 54 backend unit + API tests
 npm run i18n:check              # reports untranslated / missing UI strings
 npm run build                   # production frontend build
+npm run lint:sh                 # shellcheck across all shell scripts
+npm run test:sh                 # start/stop regression tests (uses real ports)
 cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities
 ```
 
@@ -146,15 +219,24 @@ inventory-system/
 ├── frontend/         # React + Vite user interface
 │   ├── src/context/  # auth/settings, toasts, confirm dialogs
 │   └── scripts/      # i18n coverage checker
+├── RUN.sh            # One command: set up (first run) then start
 ├── START.sh          # Starts the local application
-├── STOP.sh           # Stops the local application
+├── STOP.sh           # Stops it and confirms the ports are free
+├── scripts/
+│   ├── install.sh    # Idempotent installer / first-time setup
+│   ├── lib.sh        # Shared shell helpers (ports, PID files, logging)
+│   ├── generate-cert.sh   # Self-signed LAN certificate for HTTPS/PWA
+│   └── test-scripts.sh    # Regression tests for the shell scripts
 ├── CODE_REVIEW.md    # Audit findings and remediation notes
 └── README.md         # Consolidated project documentation
 ```
 
 ## Notes for Developers
 
-- Use `START.sh` and `STOP.sh` for normal local operation.
+- Use `RUN.sh` for a first run, then `START.sh` / `STOP.sh` day to day.
+- Shell scripts must pass `npm run lint:sh` (shellcheck) and `npm run test:sh`.
+- Put shared shell logic in `scripts/lib.sh` rather than duplicating it, and
+  use `set -euo pipefail` plus the documented exit codes in every script.
 - Keep documentation consolidated in this root `README.md` file.
 - Avoid adding separate Markdown files unless the documentation strategy changes.
 - Run `npm run verify` before opening changes for review.

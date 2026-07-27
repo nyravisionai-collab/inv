@@ -108,3 +108,24 @@ jobs:
             exit 1
           fi
           echo "OK: no environment, database, or backup files tracked."
+
+  scripts:
+    name: Shell scripts (shellcheck + start/stop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: npm run lint:sh
+
+      # Exercises the real failure modes: double start, stale PID files,
+      # recycled PIDs, missing node, and that STOP.sh frees both ports.
+      - name: Script regression tests
+        run: bash scripts/test-scripts.sh

@@ -1,91 +1,195 @@
-#!/data/data/com.termux/files/usr/bin/bash
-set -e
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+#!/usr/bin/env bash
+# Inventory Management System — installer / first-time setup.
+#
+# Safe to re-run: it never overwrites an existing backend/.env and never
+# deletes an existing database unless you explicitly ask for it.
+#
+#   bash scripts/install.sh              install dependencies + prepare config
+#   bash scripts/install.sh --reinstall  also wipe node_modules and reinstall
+#   bash scripts/install.sh --reset-db   DELETE the database and recreate it
+#   bash scripts/install.sh --no-build   skip the production frontend build
+#   bash scripts/install.sh --help       usage
+#
+# Exit codes: 0 ok · 1 failure · 2 missing dependency
+set -euo pipefail
+
+# Resolve this script's real directory, following symlinks, so it can be run
+# from anywhere (including via a symlink in ~/bin). This must be inline
+# because it is what lets us find scripts/lib.sh in the first place.
+__src=${BASH_SOURCE[0]}
+while [ -L "$__src" ]; do
+  __dir=$(cd -P "$(dirname "$__src")" && pwd)
+  __src=$(readlink "$__src")
+  case $__src in /*) ;; *) __src="$__dir/$__src" ;; esac
+done
+__dir=$(cd -P "$(dirname "$__src")" && pwd)
+SCRIPT_PATH=$__src
+# shellcheck source=scripts/lib.sh
+source "$__dir/lib.sh"
+# This script lives in scripts/, so the project root is one level up.
+ROOT=$(cd -P "$__dir/.." && pwd)
 cd "$ROOT"
 
-echo "═══════════════════════════════════════════"
-echo "  Inventory System — Installer"
-echo "  No login · sql.js · Termux ready"
-echo "═══════════════════════════════════════════"
+REINSTALL=0
+RESET_DB=0
+DO_BUILD=1
+while [ $# -gt 0 ]; do
+  case $1 in
+    --reinstall) REINSTALL=1 ;;
+    --reset-db) RESET_DB=1 ;;
+    --no-build) DO_BUILD=0 ;;
+    -h|--help)
+      sed -n '2,12p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//'
+      exit $EX_OK
+      ;;
+    *) die $EX_FAIL "Unknown option '$1'. Try: bash scripts/install.sh --help" ;;
+  esac
+  shift
+done
 
-if [ -n "$PREFIX" ] && echo "$PREFIX" | grep -q termux; then
-  echo "→ Termux detected"
-  command -v node >/dev/null 2>&1 || pkg install -y nodejs
-  command -v curl >/dev/null 2>&1 || pkg install -y curl
+banner "Inventory System — Installer"
+log_info "Project:  $ROOT"
+log_info "Platform: $(platform_name)"
+
+# ---------------------------------------------------------------------------
+# 1. Toolchain — on Termux we can install it; elsewhere we explain how.
+# ---------------------------------------------------------------------------
+if is_termux && ! command -v node >/dev/null 2>&1; then
+  log_step "Termux detected — installing Node.js via pkg..."
+  pkg install -y nodejs || die $EX_MISSING_DEP "'pkg install nodejs' failed. Run 'pkg update' and try again."
+fi
+if is_termux && ! command -v curl >/dev/null 2>&1; then
+  log_step "Installing curl via pkg..."
+  pkg install -y curl || log_warn "Could not install curl; health checks will fall back to a port probe."
 fi
 
-mkdir -p backend/data backend/uploads backend/backups backend/logs
-mkdir -p backend/uploads/logos backend/uploads/products backend/uploads/avatars backend/uploads/imports backend/uploads/misc
+check_node 18 || exit $EX_MISSING_DEP
+log_ok "Node $(node --version) / npm $(npm --version)"
 
-cat > backend/.env << 'EOF'
-PORT=5000
-HOST=0.0.0.0
-DB_PATH=./data/inventory.db
-UPLOAD_DIR=./uploads
-BACKUP_DIR=./backups
-NODE_ENV=production
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX=2000
-CORS_ORIGIN=*
-COMPANY_NAME=My Business
-CURRENCY=INR
-CURRENCY_SYMBOL=₹
-TIMEZONE=Asia/Kolkata
-EOF
+command -v curl >/dev/null 2>&1 || log_warn "curl is not installed — START.sh will use a plain port check instead."
 
-echo ""
-echo "→ Backend dependencies..."
-cd "$ROOT/backend"
-rm -rf node_modules/better-sqlite3 2>/dev/null || true
-npm install --no-optional --omit=optional
-echo "✓ Backend OK"
+# ---------------------------------------------------------------------------
+# 2. Directories
+# ---------------------------------------------------------------------------
+log_step "Creating data directories..."
+mkdir -p "$ROOT/backend/data" "$ROOT/backend/backups" "$ROOT/backend/logs" "$ROOT/.run"
+for sub in logos products avatars imports misc; do
+  mkdir -p "$ROOT/backend/uploads/$sub"
+done
+log_ok "Directories ready"
 
-echo ""
-echo "→ Fresh empty database..."
-rm -f data/inventory.db data/*.tmp data/*-wal data/*-shm 2>/dev/null || true
-node -e '
-const fs=require("fs");const path=require("path");
-process.env.DB_PATH=path.join(__dirname,"data/inventory.db");
-const db=require("./src/db/database");
-(async()=>{
-  await db.init();
-  db.exec(fs.readFileSync("./src/db/schema.sql","utf8"));
-  db.prepare("INSERT INTO company_settings (id, company_name) VALUES (1, ?)").run("My Business");
-  db.prepare("INSERT INTO users (username,email,password_hash,full_name,role,permissions,is_active) VALUES (?,?,?,?,?,?,1)")
-    .run("local","local@localhost","no-auth","Local User","admin",JSON.stringify({all:true}));
-  db.prepare("INSERT INTO bank_accounts (account_name,account_type,opening_balance,current_balance,is_default,is_active) VALUES (?,?,?,?,?,?)")
-    .run("Cash in Hand","cash",0,0,1,1);
-  db.prepare("INSERT INTO warehouses (name,code,is_default,is_active) VALUES (?,?,?,?)").run("Main Store","MAIN",1,1);
-  const iu=db.prepare("INSERT INTO units (name,short_name,allow_fractional) VALUES (?,?,?)");
-  [["Piece","pcs",0],["Kilogram","kg",1],["Litre","ltr",1],["Meter","mtr",1],["Box","box",0]].forEach(u=>iu.run(...u));
-  const it=db.prepare("INSERT INTO tax_rates (name,rate,cgst,sgst,igst) VALUES (?,?,?,?,?)");
-  [["GST 0%",0,0,0,0],["GST 5%",5,2.5,2.5,5],["GST 12%",12,6,6,12],["GST 18%",18,9,9,18],["GST 28%",28,14,14,28]].forEach(t=>it.run(...t));
-  db.persist();
-  console.log("products", db.prepare("SELECT COUNT(*) c FROM products").get().c);
-  console.log("sales", db.prepare("SELECT COUNT(*) c FROM sales").get().c);
-  db.close();
-  console.log("✓ Fresh DB");
-})().catch(e=>{console.error(e);process.exit(1)});
-'
+# ---------------------------------------------------------------------------
+# 3. Configuration — .env.example is the single source of truth.
+#    The old installer wrote its own truncated copy over the top of whatever
+#    the user had, silently dropping LAN_ONLY/HTTPS/TRUST_PROXY.
+# ---------------------------------------------------------------------------
+ENV_FILE="$ROOT/backend/.env"
+ENV_EXAMPLE="$ROOT/backend/.env.example"
+[ -f "$ENV_EXAMPLE" ] || die $EX_FAIL "backend/.env.example is missing — the checkout looks incomplete."
 
-echo ""
-echo "→ Frontend dependencies..."
-cd "$ROOT/frontend"
-npm install
-echo "✓ Frontend OK"
+if [ -f "$ENV_FILE" ]; then
+  log_ok "Keeping your existing backend/.env"
+  added=0
+  while IFS= read -r line; do
+    case $line in
+      ''|\#*) continue ;;
+    esac
+    key=${line%%=*}
+    if ! grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+      printf '%s\n' "$line" >> "$ENV_FILE"
+      log_info "added missing setting: $key"
+      added=$((added + 1))
+    fi
+  done < "$ENV_EXAMPLE"
+  [ "$added" -eq 0 ] && log_info "all settings already present"
+else
+  cp "$ENV_EXAMPLE" "$ENV_FILE"
+  log_ok "Created backend/.env from .env.example"
+fi
 
-echo ""
-echo "→ Building frontend..."
-npx vite build || echo "(dev server will be used if build optional)"
-echo "✓ Build done"
+# ---------------------------------------------------------------------------
+# 4. Dependencies
+# ---------------------------------------------------------------------------
+if [ "$REINSTALL" -eq 1 ]; then
+  log_step "--reinstall: removing existing node_modules..."
+  rm -rf "$ROOT/backend/node_modules" "$ROOT/frontend/node_modules"
+fi
 
-chmod +x "$ROOT/START.sh" "$ROOT/STOP.sh" "$ROOT/RUN.sh" 2>/dev/null || true
+# better-sqlite3 needs a native NDK build that Termux cannot do; sql.js is used
+# instead, so drop any stale copy left behind by an older install.
+rm -rf "$ROOT/backend/node_modules/better-sqlite3" 2>/dev/null || true
 
-echo ""
-echo "═══════════════════════════════════════════"
-echo "  Install complete!"
-echo "  Start:  bash START.sh"
-echo "  Stop:   bash STOP.sh"
-echo "  UI:     http://localhost:5173  (no login)"
-echo "  API:    http://localhost:5000"
-echo "═══════════════════════════════════════════"
+ensure_deps "$ROOT/backend" "backend" \
+  express sql.js dotenv helmet -- --no-optional --omit=optional || exit $EX_MISSING_DEP
+ensure_deps "$ROOT/frontend" "frontend" \
+  vite react .bin/vite -- || exit $EX_MISSING_DEP
+
+# ---------------------------------------------------------------------------
+# 5. Database
+# ---------------------------------------------------------------------------
+DB_FILE="$ROOT/backend/data/inventory.db"
+
+if [ "$RESET_DB" -eq 1 ] && [ -f "$DB_FILE" ]; then
+  # Destroying real business data must never be a silent side effect.
+  backup="$ROOT/backend/backups/inventory-$(date +%Y%m%d-%H%M%S).db"
+  cp "$DB_FILE" "$backup"
+  log_warn "--reset-db: existing database backed up to ${backup#"$ROOT"/}"
+  rm -f "$DB_FILE" "$ROOT"/backend/data/*.tmp "$ROOT"/backend/data/*-wal "$ROOT"/backend/data/*-shm
+  log_ok "Old database removed"
+fi
+
+if [ -f "$DB_FILE" ]; then
+  log_ok "Existing database kept ($(basename "$DB_FILE")) — use --reset-db to start fresh"
+else
+  log_step "Creating a fresh empty database..."
+  # The server's own bootstrap creates the schema and system defaults, so we
+  # reuse it rather than duplicating the SQL here (which used to drift).
+  ( cd "$ROOT/backend" && node -e '
+      const { bootstrap } = require("./src/server.js");
+      bootstrap()
+        .then(({ server, db }) => {
+          db.persist();
+          server.close(() => process.exit(0));
+        })
+        .catch((e) => { console.error(e.message); process.exit(1); });
+    ' >/dev/null 2>&1 ) || die $EX_FAIL "Database initialisation failed. Run it manually to see why:
+    cd backend && node src/db/migrate.js"
+  [ -f "$DB_FILE" ] || die $EX_FAIL "Database initialisation reported success but $DB_FILE was not created."
+  log_ok "Fresh database created at backend/data/inventory.db"
+fi
+
+# ---------------------------------------------------------------------------
+# 6. Frontend production build (optional; the dev server does not need it)
+# ---------------------------------------------------------------------------
+if [ "$DO_BUILD" -eq 1 ]; then
+  log_step "Building the frontend (for SERVE_FRONTEND=1 single-port mode)..."
+  if ( cd "$ROOT/frontend" && npm run build >/dev/null 2>&1 ); then
+    log_ok "Frontend build complete (frontend/dist)"
+  else
+    # Not fatal: START.sh runs the Vite dev server, which needs no build.
+    log_warn "Frontend build failed — the app still works via START.sh (dev server)."
+    log_info "to see the error: cd frontend && npm run build"
+  fi
+else
+  log_info "Skipping frontend build (--no-build)"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Make the scripts executable
+# ---------------------------------------------------------------------------
+chmod +x "$ROOT/START.sh" "$ROOT/STOP.sh" "$ROOT/RUN.sh" \
+         "$ROOT/scripts/install.sh" "$ROOT/scripts/generate-cert.sh" 2>/dev/null || true
+
+PORT=$(env_value "$ENV_FILE" PORT); PORT=${PORT:-5000}
+
+banner "Install complete"
+printf '  %sStart the app:%s  bash START.sh      %s(or: npm start)%s\n' \
+  "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
+printf '  %sStop the app:%s   bash STOP.sh       %s(or: npm stop)%s\n' \
+  "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET"
+printf '  %sCheck status:%s   bash STOP.sh --status\n\n' "$C_BOLD" "$C_RESET"
+printf '  UI   http://localhost:5173   (no login)\n'
+printf '  API  http://localhost:%s/api\n\n' "$PORT"
+printf '  Logs are written to backend/logs/backend.log and backend/logs/frontend.log\n\n'
+
+exit $EX_OK
