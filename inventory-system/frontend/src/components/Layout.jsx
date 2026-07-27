@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { searchAPI, notificationsAPI } from '../api/client';
+import InstallPrompt from './InstallPrompt';
 
 const NAV = [
   {
@@ -144,6 +145,8 @@ export default function Layout() {
   return (
     <div className="app-layout">
       {!online && <div className="offline-banner" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999 }}>{t('You are offline — changes will sync when reconnected')}</div>}
+
+      <InstallPrompt />
 
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
 

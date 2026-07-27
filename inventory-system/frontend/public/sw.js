@@ -4,10 +4,24 @@
  * API responses are deliberately NOT cached. In a POS the stock counts and
  * prices must be authoritative — serving a stale cached /api/products could
  * cause a sale at an old price or against stock that no longer exists.
- * Only static build assets are cached.
+ * Only static build assets (HTML/CSS/JS/icons) are cached — never anything
+ * under /api/ or /uploads/, which is where all business data lives.
+ *
+ * Bump CACHE whenever this file or the precached asset list changes so
+ * every previously-installed client discards its old cache on next load
+ * (see the `activate` handler below) instead of serving stale shell files
+ * forever.
  */
-const CACHE = 'inv-mgmt-v2';
-const ASSETS = ['/', '/index.html', '/manifest.webmanifest'];
+const CACHE = 'inv-mgmt-v3';
+const ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-192-maskable.png',
+  '/icon-512-maskable.png',
+];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

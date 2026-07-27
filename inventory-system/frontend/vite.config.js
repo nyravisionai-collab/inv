@@ -1,5 +1,32 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Service workers (and therefore the PWA "Install app" prompt) only run in a
+ * secure context: https://, or http://localhost. A phone opening the app at
+ * its LAN IP over plain HTTP will never see beforeinstallprompt even though
+ * the manifest and service worker are both correct. Set HTTPS=1 (see
+ * scripts/generate-cert.sh) to serve the dev/preview server over a
+ * self-signed cert so LAN devices can install it too.
+ */
+function loadHttpsOptions() {
+  if (String(process.env.HTTPS || '').trim() !== '1') return undefined;
+  const certDir = path.join(__dirname, '../certs');
+  const keyFile = path.join(certDir, 'dev.key');
+  const certFile = path.join(certDir, 'dev.crt');
+  if (!fs.existsSync(keyFile) || !fs.existsSync(certFile)) {
+    console.warn(
+      '[https] HTTPS=1 was set but certs/dev.key or certs/dev.crt is missing.\n' +
+      '         Run "bash scripts/generate-cert.sh" first. Falling back to HTTP.'
+    );
+    return undefined;
+  }
+  return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
+}
+
+const httpsOptions = loadHttpsOptions();
 
 function normalizeIp(raw) {
   if (!raw) return '';
@@ -87,6 +114,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    https: httpsOptions,
     proxy: {
       '/api': localProxy,
       '/uploads': localProxy,
@@ -96,6 +124,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    https: httpsOptions,
     proxy: {
       '/api': localProxy,
       '/uploads': localProxy,

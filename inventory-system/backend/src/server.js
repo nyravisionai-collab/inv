@@ -174,14 +174,38 @@ async function bootstrap() {
   const PORT = config.port || 5000;
   const HOST = config.host || '0.0.0.0';
 
+  // Optional HTTPS with the self-signed cert from scripts/generate-cert.sh.
+  // Only matters for the single-port SERVE_FRONTEND=1 deployment — the PWA
+  // (service worker + install prompt) needs a secure context on LAN clients.
+  let httpServer = app;
+  let protocol = 'http';
+  if (config.https) {
+    const certDir = path.join(__dirname, '../../certs');
+    const keyFile = path.join(certDir, 'dev.key');
+    const certFile = path.join(certDir, 'dev.crt');
+    if (fs.existsSync(keyFile) && fs.existsSync(certFile)) {
+      const https = require('https');
+      httpServer = https.createServer(
+        { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) },
+        app
+      );
+      protocol = 'https';
+    } else {
+      console.warn(
+        '[https] HTTPS=1 was set but certs/dev.key or certs/dev.crt is missing.\n' +
+        '         Run "bash scripts/generate-cert.sh" first. Falling back to HTTP.'
+      );
+    }
+  }
+
   return await new Promise((resolve, reject) => {
-    const server = app.listen(PORT, HOST, () => {
+    const server = httpServer.listen(PORT, HOST, () => {
       console.log(`
 ╔══════════════════════════════════════════════════╗
 ║   Inventory Management System (Termux Ready)     ║
-║   Backend:  http://${HOST}:${PORT}                  ║
-║   API:      http://${HOST}:${PORT}/api              ║
-║   Health:   http://${HOST}:${PORT}/api/health       ║
+║   Backend:  ${protocol}://${HOST}:${PORT}                  ║
+║   API:      ${protocol}://${HOST}:${PORT}/api              ║
+║   Health:   ${protocol}://${HOST}:${PORT}/api/health       ║
 ║   SQLite:   sql.js (pure JS, no NDK)             ║
 ╚══════════════════════════════════════════════════╝
   `);
