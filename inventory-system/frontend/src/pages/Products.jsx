@@ -162,9 +162,9 @@ export default function Products() {
           <h1 className="page-title">{t('Products')}</h1>
           <p className="page-subtitle">{pagination.total} products</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="page-actions">
           <button className="btn btn-secondary" onClick={openAllBarcodes}><QrCode size={18} /> {t('Print All Barcodes')}</button>
-          <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> Add Product</button>
+          <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> {t('Add Product')}</button>
         </div>
       </div>
 
@@ -176,7 +176,7 @@ export default function Products() {
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState title="No products" message="Add your first product to get started" action={<button className="btn btn-primary" onClick={openCreate}>{t('Add Product')}</button>} />
+          <EmptyState title={t('No products')} message={t('Add your first product to get started')} action={<button className="btn btn-primary" onClick={openCreate}>{t('Add Product')}</button>} />
         ) : (
           <>
             <div className="table-wrap">
@@ -190,23 +190,23 @@ export default function Products() {
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
-                      <td>
+                      <td data-label={t('Photo')}>
                         <div className="product-thumb">
                           {p.image ? <img src={p.image} alt={p.name} loading="lazy" /> : <ImagePlus size={16} />}
                         </div>
                       </td>
-                      <td style={{ fontWeight: 500 }}>{p.name}</td>
-                      <td>{p.sku || '—'}</td>
-                      <td>{p.category_name || '—'}</td>
-                      <td>{formatMoney(p.purchase_price)}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(p.selling_price)}</td>
-                      <td>
+                      <td data-label={t('Name')} style={{ fontWeight: 500 }}>{p.name}</td>
+                      <td data-label={t('SKU')}>{p.sku || '—'}</td>
+                      <td data-label={t('Category')}>{p.category_name || '—'}</td>
+                      <td data-label={t('Purchase')}>{formatMoney(p.purchase_price)}</td>
+                      <td data-label={t('Selling')} style={{ fontWeight: 600 }}>{formatMoney(p.selling_price)}</td>
+                      <td data-label={t('Stock')}>
                         <span className={`badge ${p.current_stock <= p.min_stock && p.min_stock > 0 ? 'badge-error' : 'badge-success'}`}>
                           {p.current_stock} {p.unit_short || ''}
                         </span>
                       </td>
-                      <td>{p.tax_rate}%</td>
-                      <td>
+                      <td data-label={t('Tax')}>{p.tax_rate}%</td>
+                      <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => showQr(p.id)} title="Barcode"><QrCode size={16} /></button>
                           <button className="btn-icon" onClick={() => openEdit(p)} title="Edit"><Edit size={16} /></button>
@@ -223,11 +223,11 @@ export default function Products() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Product' : 'Add Product'} size="lg"
+      <Modal open={modal} onClose={() => setModal(false)} title={editId ? t('Edit Product') : t('Add Product')} size="lg"
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button>
-            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
           </>
         }
       >
@@ -327,7 +327,7 @@ export default function Products() {
         </div>
       </Modal>
 
-      <Modal open={!!qrModal} onClose={() => setQrModal(null)} title="Barcode / QR Code">
+      <Modal open={!!qrModal} onClose={() => setQrModal(null)} title={t('Barcode / QR Code')}>
         {qrModal && (
           <div style={{ textAlign: 'center' }}>
             <img src={qrModal.qr} alt="QR" style={{ width: 250, height: 250 }} />
@@ -347,13 +347,13 @@ export default function Products() {
           </>
         }
       >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+        <div className="barcode-grid">
           {allBarcodesList.map((item) => (
-            <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', textAlign: 'center', background: 'var(--surface)', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
-              <img src={item.qr} alt="QR" style={{ width: 140, height: 140, margin: '0 auto' }} />
-              <p style={{ fontWeight: 600, fontSize: 13, marginTop: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>{item.name}</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{item.code}</p>
-              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--primary)', marginTop: 4 }}>{formatMoney(item.price)}</p>
+            <div key={item.id} className="barcode-card">
+              <img src={item.qr} alt="QR" />
+              <p className="barcode-name" title={item.name}>{item.name}</p>
+              <p className="barcode-code">{item.code}</p>
+              <p className="barcode-price">{formatMoney(item.price)}</p>
             </div>
           ))}
         </div>

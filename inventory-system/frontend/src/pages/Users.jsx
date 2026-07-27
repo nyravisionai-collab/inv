@@ -80,13 +80,13 @@ export default function Users() {
           <p className="page-subtitle">{pagination.total} users</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setForm(empty); setEditId(null); setModal(true); }}>
-          <Plus size={18} /> Add User
+          <Plus size={18} /> {t('Add User')}
         </button>
       </div>
 
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState icon={Shield} title="No users" />
+          <EmptyState icon={Shield} title={t('No users')} />
         ) : (
           <>
             <div className="table-wrap">
@@ -100,14 +100,14 @@ export default function Users() {
                 <tbody>
                   {items.map((u) => (
                     <tr key={u.id}>
-                      <td style={{ fontWeight: 500 }}>{u.full_name}</td>
-                      <td>{u.username}</td>
-                      <td>{u.email}</td>
-                      <td>{u.phone || '—'}</td>
-                      <td><span className={`badge ${roleBadge(u.role)}`}>{u.role}</span></td>
-                      <td><span className={`badge ${u.is_active ? 'badge-success' : 'badge-error'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
-                      <td>{u.last_login || 'Never'}</td>
-                      <td>
+                      <td data-label={t('Name')} style={{ fontWeight: 500 }}>{u.full_name}</td>
+                      <td data-label={t('Username')}>{u.username}</td>
+                      <td data-label={t('Email')}>{u.email}</td>
+                      <td data-label={t('Phone')}>{u.phone || '—'}</td>
+                      <td data-label={t('Role')}><span className={`badge ${roleBadge(u.role)}`}>{t(u.role)}</span></td>
+                      <td data-label={t('Status')}><span className={`badge ${u.is_active ? 'badge-success' : 'badge-error'}`}>{u.is_active ? t('Active') : t('Inactive')}</span></td>
+                      <td data-label={t('Last Login')}>{u.last_login || t('Never')}</td>
+                      <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => {
                             setForm({ username: u.username, email: u.email, password: '', full_name: u.full_name, phone: u.phone || '', role: u.role });
@@ -127,11 +127,11 @@ export default function Users() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit User' : 'Add User'}
+      <Modal open={modal} onClose={() => setModal(false)} title={editId ? t('Edit User') : t('Add User')}
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button>
-            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
           </>
         }
       >
@@ -153,8 +153,8 @@ export default function Users() {
             <input className="form-control" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">Password {!editId && <span className="required">*</span>}</label>
-            <input className="form-control" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editId ? 'Leave blank to keep' : ''} />
+            <label className="form-label">{t('Password')} {!editId && <span className="required">*</span>}</label>
+            <input className="form-control" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={editId ? t('Leave blank to keep') : ''} />
           </div>
           <div className="form-group">
             <label className="form-label">{t('Role')}</label>

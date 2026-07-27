@@ -83,13 +83,13 @@ function PartyPage({ type }) {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">{title}</h1><p className="page-subtitle">{pagination.total} records</p></div>
-        <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> Add {isCustomer ? 'Customer' : 'Supplier'}</button>
+        <div><h1 className="page-title">{t(title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
+        <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> {t(isCustomer ? 'Add Customer' : 'Add Supplier')}</button>
       </div>
       <div className="card">
         <div className="card-header">
           <div className="search-box" style={{ maxWidth: 320 }}>
-            <Search size={18} /><input placeholder={`Search ${title.toLowerCase()}...`} value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Search size={18} /><input placeholder={t(isCustomer ? 'Search customers...' : 'Search suppliers...')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
@@ -108,15 +108,15 @@ function PartyPage({ type }) {
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
-                      <td style={{ fontWeight: 500 }}>{p.name}</td>
-                      <td>{p.phone || '—'}</td>
-                      <td>{p.city || '—'}</td>
-                      <td>{p.gstin || '—'}</td>
-                      {isCustomer && <td>{formatMoney(p.credit_limit)}</td>}
-                      <td style={{ fontWeight: 600, color: p.current_balance > 0 ? 'var(--error)' : 'var(--success)' }}>
+                      <td data-label={t('Name')} style={{ fontWeight: 500 }}>{p.name}</td>
+                      <td data-label={t('Phone')}>{p.phone || '—'}</td>
+                      <td data-label={t('City')}>{p.city || '—'}</td>
+                      <td data-label={t('GSTIN')}>{p.gstin || '—'}</td>
+                      {isCustomer && <td data-label={t('Credit Limit')}>{formatMoney(p.credit_limit)}</td>}
+                      <td data-label={t('Balance')} style={{ fontWeight: 600, color: p.current_balance > 0 ? 'var(--error)' : 'var(--success)' }}>
                         {formatMoney(p.current_balance)}
                       </td>
-                      <td>
+                      <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => showLedger(p.id)} title="Ledger"><BookOpen size={16} /></button>
                           <button className="btn-icon" onClick={() => openEdit(p)} title="Edit"><Edit size={16} /></button>
@@ -133,8 +133,8 @@ function PartyPage({ type }) {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit' : `Add ${isCustomer ? 'Customer' : 'Supplier'}`} size="lg"
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
+      <Modal open={modal} onClose={() => setModal(false)} title={editId ? t('Edit') : t(isCustomer ? 'Add Customer' : 'Add Supplier')} size="lg"
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button></>}
       >
         <div className="form-row">
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -166,10 +166,10 @@ function PartyPage({ type }) {
                 <tbody>
                   {(ledger.entries || []).map((e, i) => (
                     <tr key={i}>
-                      <td>{e.d}</td><td>{e.ref}</td><td>{e.type}</td>
-                      <td>{e.debit ? formatMoney(e.debit) : '—'}</td>
-                      <td>{e.credit ? formatMoney(e.credit) : '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(e.balance)}</td>
+                      <td data-label={t('Date')}>{e.d}</td><td data-label={t('Ref')}>{e.ref}</td><td data-label={t('Type')}>{t(e.type)}</td>
+                      <td data-label={t('Debit')}>{e.debit ? formatMoney(e.debit) : '—'}</td>
+                      <td data-label={t('Credit')}>{e.credit ? formatMoney(e.credit) : '—'}</td>
+                      <td data-label={t('Balance')} style={{ fontWeight: 600 }}>{formatMoney(e.balance)}</td>
                     </tr>
                   ))}
                   {(!ledger.entries || !ledger.entries.length) && (

@@ -62,11 +62,11 @@ export function Expenses() {
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.expense_number}</td><td>{e.expense_date}</td>
-                      <td><span className="badge badge-warning">{e.category}</span></td>
-                      <td>{e.description || '—'}</td><td>{e.payment_mode}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td>
-                      <td><button className="btn-icon" onClick={() => remove(e.id)}><Trash2 size={16} /></button></td>
+                      <td data-label={t('Number')}>{e.expense_number}</td><td data-label={t('Date')}>{e.expense_date}</td>
+                      <td data-label={t('Category')}><span className="badge badge-warning">{t(e.category)}</span></td>
+                      <td data-label={t('Description')}>{e.description || '—'}</td><td data-label={t('Mode')}>{t(e.payment_mode)}</td>
+                      <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td>
+                      <td data-label={t('Actions')}><button className="btn-icon" onClick={() => remove(e.id)}><Trash2 size={16} /></button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -154,10 +154,10 @@ export function Incomes() {
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.income_number}</td><td>{e.income_date}</td>
-                      <td><span className="badge badge-success">{e.category}</span></td>
-                      <td>{e.description || '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td>
+                      <td data-label={t('Number')}>{e.income_number}</td><td data-label={t('Date')}>{e.income_date}</td>
+                      <td data-label={t('Category')}><span className="badge badge-success">{e.category}</span></td>
+                      <td data-label={t('Description')}>{e.description || '—'}</td>
+                      <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -245,11 +245,11 @@ export function Banks() {
               <tbody>
                 {items.map((b) => (
                   <tr key={b.id}>
-                    <td style={{ fontWeight: 500 }}>{b.account_name} {b.is_default ? <span className="badge badge-info">{t('Default')}</span> : ''}</td>
-                    <td><span className="badge badge-default">{b.account_type}</span></td>
-                    <td>{b.bank_name || '—'}</td>
-                    <td>{b.account_number || '—'}</td>
-                    <td style={{ fontWeight: 700 }}>{formatMoney(b.current_balance)}</td>
+                    <td data-label={t('Account')} style={{ fontWeight: 500 }}>{b.account_name} {b.is_default ? <span className="badge badge-info">{t('Default')}</span> : ''}</td>
+                    <td data-label={t('Type')}><span className="badge badge-default">{t(b.account_type)}</span></td>
+                    <td data-label={t('Bank')}>{b.bank_name || '—'}</td>
+                    <td data-label={t('Number')}>{b.account_number || '—'}</td>
+                    <td data-label={t('Balance')} style={{ fontWeight: 700 }}>{formatMoney(b.current_balance)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -313,11 +313,11 @@ export function CashBook() {
                 <tbody>
                   {(data?.entries || []).map((e, i) => (
                     <tr key={i}>
-                      <td>{e.date}</td><td>{e.particular}</td><td><span className="badge badge-default">{e.type}</span></td>
-                      <td>{e.ref}</td>
-                      <td style={{ color: 'var(--success)' }}>{e.debit ? formatMoney(e.debit) : '—'}</td>
-                      <td style={{ color: 'var(--error)' }}>{e.credit ? formatMoney(e.credit) : '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(e.balance)}</td>
+                      <td data-label={t('Date')}>{e.date}</td><td data-label={t('Particular')}>{e.particular}</td><td data-label={t('Type')}><span className="badge badge-default">{t(e.type)}</span></td>
+                      <td data-label={t('Ref')}>{e.ref}</td>
+                      <td data-label={t('Debit (In)')} style={{ color: 'var(--success)' }}>{e.debit ? formatMoney(e.debit) : '—'}</td>
+                      <td data-label={t('Credit (Out)')} style={{ color: 'var(--error)' }}>{e.credit ? formatMoney(e.credit) : '—'}</td>
+                      <td data-label={t('Balance')} style={{ fontWeight: 600 }}>{formatMoney(e.balance)}</td>
                     </tr>
                   ))}
                   {(!data?.entries || !data.entries.length) && (
@@ -385,12 +385,12 @@ export function Journals() {
               <tbody>
                 {items.map((j) => (
                   <tr key={j.id}>
-                    <td style={{ fontWeight: 600 }}>{j.entry_number}</td>
-                    <td>{j.entry_date}</td>
-                    <td><span className="badge badge-info">{j.entry_type}</span></td>
-                    <td>{j.narration || '—'}</td>
-                    <td>{formatMoney(j.total_debit)}</td>
-                    <td>{formatMoney(j.total_credit)}</td>
+                    <td data-label={t('Number')} style={{ fontWeight: 600 }}>{j.entry_number}</td>
+                    <td data-label={t('Date')}>{j.entry_date}</td>
+                    <td data-label={t('Type')}><span className="badge badge-info">{t(j.entry_type)}</span></td>
+                    <td data-label={t('Narration')}>{j.narration || '—'}</td>
+                    <td data-label={t('Debit')}>{formatMoney(j.total_debit)}</td>
+                    <td data-label={t('Credit')}>{formatMoney(j.total_credit)}</td>
                   </tr>
                 ))}
               </tbody>
