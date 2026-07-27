@@ -34,6 +34,7 @@ export default function Users() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
+    if (saving) return undefined;
     if (!form.username || !form.email || !form.full_name) return error(t('Fill required fields'));
     if (!editId && !form.password) return error(t('Password required'));
     setSaving(true);

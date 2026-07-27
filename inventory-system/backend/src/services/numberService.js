@@ -72,33 +72,66 @@ function nextNumber(type) {
   return number;
 }
 
+/**
+ * Next sequential number for an auxiliary document table.
+ *
+ * COUNT(*) + 1 is not safe here: these columns are UNIQUE and rows can be
+ * deleted, so after deleting any row the count collides with a number that is
+ * still in use and the next INSERT fails with a UNIQUE constraint error.
+ * Start from the highest number ever issued and skip anything already taken.
+ */
+function nextSequentialNumber(table, column, prefix) {
+  let next = 1;
+  try {
+    const row = db.prepare(`
+      SELECT MAX(CAST(substr(${column}, length(?) + 2) AS INTEGER)) as n
+      FROM ${table} WHERE ${column} LIKE ? ESCAPE '!'
+    `).get(prefix, `${prefix}-%`);
+    next = Number(row?.n || 0) + 1;
+  } catch {
+    next = 1;
+  }
+
+  let number = generateNumber(prefix, next);
+  let guard = 0;
+  while (guard < 1000) {
+    let exists;
+    try {
+      exists = db.prepare(`SELECT 1 as x FROM ${table} WHERE ${column} = ?`).get(number);
+    } catch {
+      break;
+    }
+    if (!exists) break;
+    next += 1;
+    number = generateNumber(prefix, next);
+    guard += 1;
+  }
+  return number;
+}
+
 function nextExpenseNumber() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM expenses").get();
-  return generateNumber('EXP', (row.c || 0) + 1);
+  return nextSequentialNumber('expenses', 'expense_number', 'EXP');
 }
 
 function nextIncomeNumber() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM incomes").get();
-  return generateNumber('INC', (row.c || 0) + 1);
+  return nextSequentialNumber('incomes', 'income_number', 'INC');
 }
 
 function nextJournalNumber() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM journal_entries").get();
-  return generateNumber('JV', (row.c || 0) + 1);
+  return nextSequentialNumber('journal_entries', 'entry_number', 'JV');
 }
 
 function nextTransferNumber() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM stock_transfers").get();
-  return generateNumber('ST', (row.c || 0) + 1);
+  return nextSequentialNumber('stock_transfers', 'transfer_number', 'ST');
 }
 
 function nextAdjustmentNumber() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM stock_adjustments").get();
-  return generateNumber('SA', (row.c || 0) + 1);
+  return nextSequentialNumber('stock_adjustments', 'adjustment_number', 'SA');
 }
 
 module.exports = {
   nextNumber,
+  nextSequentialNumber,
   nextExpenseNumber,
   nextIncomeNumber,
   nextJournalNumber,

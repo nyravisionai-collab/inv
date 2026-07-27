@@ -3,6 +3,7 @@ const { success, error } = require('../utils/response');
 const { now, today, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
+const { toNumber, optionalDate, ValidationError } = require('../utils/validate');
 
 // Categories
 function listCategories(req, res) {
@@ -246,11 +247,37 @@ function listTransfers(req, res) {
 
 function createTransfer(req, res) {
   const txn = db.transaction(() => {
-    const { from_warehouse_id, to_warehouse_id, transfer_date, items = [], notes } = req.body;
-    if (!from_warehouse_id || !to_warehouse_id || !items.length) throw new Error('From/To warehouse and items required');
-    if (from_warehouse_id === to_warehouse_id) throw new Error('Warehouses must be different');
-    for (const item of items) {
-      if (!item.product_id || Number(item.quantity) <= 0) throw new Error('Product and positive quantity required');
+    const { from_warehouse_id, to_warehouse_id, notes } = req.body;
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!from_warehouse_id || !to_warehouse_id || !items.length) {
+      throw new ValidationError('From/To warehouse and items required', 'ERR_REQUIRED');
+    }
+    if (String(from_warehouse_id) === String(to_warehouse_id)) {
+      throw new ValidationError('Warehouses must be different', 'ERR_SAME_WAREHOUSE');
+    }
+    const transfer_date = optionalDate(req.body.transfer_date, 'Transfer date') || today();
+
+    // Both warehouses must exist. Transferring into an unknown warehouse used
+    // to succeed and quietly destroy the quantity taken out of the source.
+    for (const [label, id] of [['Source warehouse', from_warehouse_id], ['Destination warehouse', to_warehouse_id]]) {
+      const wh = db.prepare('SELECT id FROM warehouses WHERE id = ? AND is_active = 1').get(id);
+      if (!wh) throw new ValidationError(`${label} not found`, 'ERR_NOT_FOUND');
+    }
+
+    // Normalise quantities up-front: a non-numeric quantity previously slipped
+    // through `Number(x) <= 0` (NaN comparisons are false) and wrote NaN into
+    // warehouse_stock, wiping the product's stock to 0.
+    const lines = items.map((item, index) => {
+      const label = `Item ${index + 1}`;
+      if (!item.product_id) throw new ValidationError(`${label}: product is required`, 'ERR_REQUIRED');
+      const product = db.prepare('SELECT id FROM products WHERE id = ?').get(item.product_id);
+      if (!product) throw new ValidationError(`${label}: product not found`, 'ERR_NOT_FOUND');
+      const quantity = toNumber(item.quantity, `${label} quantity`, { min: 0 });
+      if (quantity <= 0) throw new ValidationError(`${label}: quantity must be greater than zero`, 'ERR_QTY_POSITIVE');
+      return { product_id: item.product_id, batch_id: item.batch_id || null, quantity };
+    });
+
+    for (const item of lines) {
       stockService.assertStockAvailable(item.product_id, item.quantity, from_warehouse_id);
       if (item.batch_id) stockService.assertBatchAvailable(item.batch_id, item.quantity);
     }
@@ -259,13 +286,13 @@ function createTransfer(req, res) {
     const result = db.prepare(`
       INSERT INTO stock_transfers (transfer_number, from_warehouse_id, to_warehouse_id, transfer_date, notes, created_by)
       VALUES (?,?,?,?,?,?)
-    `).run(num, from_warehouse_id, to_warehouse_id, transfer_date || today(), notes || null, req.user.id);
+    `).run(num, from_warehouse_id, to_warehouse_id, transfer_date, notes || null, req.user.id);
 
     const tid = result.lastInsertRowid;
     const insertItem = db.prepare('INSERT INTO stock_transfer_items (transfer_id, product_id, batch_id, quantity) VALUES (?,?,?,?)');
 
-    for (const item of items) {
-      insertItem.run(tid, item.product_id, item.batch_id || null, item.quantity);
+    for (const item of lines) {
+      insertItem.run(tid, item.product_id, item.batch_id, item.quantity);
       stockService.adjustWarehouseStock(item.product_id, from_warehouse_id, -Math.abs(item.quantity));
       stockService.adjustWarehouseStock(item.product_id, to_warehouse_id, Math.abs(item.quantity));
     }
@@ -300,15 +327,30 @@ function listAdjustments(req, res) {
 
 function createAdjustment(req, res) {
   const txn = db.transaction(() => {
-    const { warehouse_id, adjustment_date, reason, notes, items = [] } = req.body;
-    if (!items.length) throw new Error('Items required');
+    const { warehouse_id, reason, notes } = req.body;
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!items.length) throw new ValidationError('Items required', 'ERR_EMPTY_LIST');
+    const adjustment_date = optionalDate(req.body.adjustment_date, 'Adjustment date') || today();
 
     const wh = warehouse_id || stockService.getDefaultWarehouse()?.id;
+    if (warehouse_id) {
+      const found = db.prepare('SELECT id FROM warehouses WHERE id = ? AND is_active = 1').get(warehouse_id);
+      if (!found) throw new ValidationError('Warehouse not found', 'ERR_NOT_FOUND');
+    }
+
+    // Unknown products used to be written as adjustment lines that changed
+    // nothing, leaving a misleading audit record behind.
+    items.forEach((item, index) => {
+      const label = `Item ${index + 1}`;
+      if (!item.product_id) throw new ValidationError(`${label}: product is required`, 'ERR_REQUIRED');
+      const product = db.prepare('SELECT id FROM products WHERE id = ?').get(item.product_id);
+      if (!product) throw new ValidationError(`${label}: product not found`, 'ERR_NOT_FOUND');
+    });
     const num = numberService.nextAdjustmentNumber();
     const result = db.prepare(`
       INSERT INTO stock_adjustments (adjustment_number, warehouse_id, adjustment_date, reason, notes, created_by)
       VALUES (?,?,?,?,?,?)
-    `).run(num, wh, adjustment_date || today(), reason || null, notes || null, req.user.id);
+    `).run(num, wh, adjustment_date, reason || null, notes || null, req.user.id);
 
     const aid = result.lastInsertRowid;
     const insertItem = db.prepare('INSERT INTO stock_adjustment_items (adjustment_id, product_id, batch_id, previous_qty, new_qty, difference) VALUES (?,?,?,?,?,?)');
@@ -316,7 +358,9 @@ function createAdjustment(req, res) {
     for (const item of items) {
       let prev;
       const newQty = Number(item.new_qty);
-      if (!Number.isFinite(newQty) || newQty < 0) throw new Error('New quantity must be non-negative');
+      if (!Number.isFinite(newQty) || newQty < 0) {
+        throw new ValidationError('New quantity must be non-negative', 'ERR_QTY_NEGATIVE');
+      }
       if (item.batch_id) {
         const batch = db.prepare('SELECT quantity FROM product_batches WHERE id = ? AND product_id = ?').get(item.batch_id, item.product_id);
         prev = batch ? Number(batch.quantity || 0) : 0;

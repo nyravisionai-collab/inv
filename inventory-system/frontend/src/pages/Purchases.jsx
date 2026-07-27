@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { calcLineTotal, calcInvoiceTotals } from '../utils/money';
+import { withRowId } from '../utils/rowId';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -115,7 +116,7 @@ function PurchaseForm() {
     supplier_id: '', bill_date: today(), due_date: '', supplier_invoice: '',
     discount_type: 'amount', discount_value: 0, notes: '', paid_amount: 0, payment_mode: 'cash',
   });
-  const [items, setItems] = useState([{ ...emptyLine }]);
+  const [items, setItems] = useState(() => [withRowId(emptyLine)]);
 
   useEffect(() => {
     suppliersAPI.list({ limit: 100 }).then((r) => setSuppliers(r.data.data)).catch(() => {});
@@ -135,23 +136,25 @@ function PurchaseForm() {
   };
 
   const updateItem = (idx, field, val) => {
-    const next = [...items];
-    next[idx] = { ...next[idx], [field]: val };
-    if (field === 'product_id') {
-      const p = products.find((x) => x.id === Number(val));
-      if (p) fillFromProduct(next[idx], p);
-    }
-    if (field === 'product_name') {
+    setItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: val };
+      if (field === 'product_id') {
+        const p = products.find((x) => x.id === Number(val));
+        if (p) fillFromProduct(next[idx], p);
+      }
+      if (field === 'product_name') {
       // The name box is free text: a match links the line to the existing
       // product, anything else is treated as a new item and is created by the
       // server when the bill is saved.
-      const match = products.find(
-        (x) => x.name.trim().toLowerCase() === String(val).trim().toLowerCase()
-      );
-      if (match) fillFromProduct(next[idx], match);
-      else next[idx].product_id = '';
-    }
-    setItems(next);
+        const match = products.find(
+          (x) => x.name.trim().toLowerCase() === String(val).trim().toLowerCase()
+        );
+        if (match) fillFromProduct(next[idx], match);
+        else next[idx].product_id = '';
+      }
+      return next;
+    });
   };
 
   const isNewProduct = (item) => {
@@ -159,7 +162,7 @@ function PurchaseForm() {
     return !!name && !item.product_id;
   };
 
-  const addBlankItem = () => setItems((prev) => [...prev, { ...emptyLine }]);
+  const addBlankItem = () => setItems((prev) => [...prev, withRowId(emptyLine)]);
 
   const handleItemKeyDown = (e, idx) => {
     if (e.key === 'Enter' && idx === items.length - 1) {
@@ -173,13 +176,14 @@ function PurchaseForm() {
   const grand = calcInvoiceTotals(items, form).grand;
 
   const save = async () => {
-    const validItems = items.filter((i) => i.product_name && i.quantity > 0);
+    if (saving) return undefined;
+    const validItems = items.filter((i) => i.product_name && Number(i.quantity) > 0);
     if (!validItems.length) return error(t('Add at least one item'));
     setSaving(true);
     try {
       const res = await purchasesAPI.create({
         ...form, bill_type: cfg.type, supplier_id: form.supplier_id || null,
-        items: validItems.map((i) => ({ ...i, mrp: Number(i.mrp) || 0 })),
+        items: validItems.map(({ _rid, ...i }) => ({ ...i, mrp: Number(i.mrp) || 0 })),
         paid_amount: Number(form.paid_amount) || 0,
         discount_value: Number(form.discount_value) || 0, status: 'completed',
       });
@@ -230,7 +234,7 @@ function PurchaseForm() {
             <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('MRP')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
             <tbody>
               {items.map((item, idx) => (
-                <tr key={idx} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
+                <tr key={item._rid} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
                   <td data-label={t('Product')}>
                     <input
                       className="form-control"
@@ -250,7 +254,7 @@ function PurchaseForm() {
                   <td data-label={t('Tax %')}><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
                   <td data-label={t('Batch')}><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
                   <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
-                  <td data-label={t('Actions')}><button className="btn-icon" onClick={() => items.length > 1 && setItems(items.filter((_, i) => i !== idx))}><XCircle size={16} /></button></td>
+                  <td data-label={t('Actions')}><button className="btn-icon" onClick={() => setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev))}><XCircle size={16} /></button></td>
                 </tr>
               ))}
             </tbody>

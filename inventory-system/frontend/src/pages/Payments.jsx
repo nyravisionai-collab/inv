@@ -48,7 +48,8 @@ export default function Payments() {
   }, [location.pathname]);
 
   const save = async () => {
-    if (!form.amount || form.amount <= 0) return error(t('Enter valid amount'));
+    if (saving) return undefined;
+    if (!(Number(form.amount) > 0)) return error(t('Enter valid amount'));
     setSaving(true);
     try {
       const res = await paymentsAPI.create({

@@ -1,6 +1,6 @@
 const db = require('../db/database');
 const { success, error, paginated } = require('../utils/response');
-const { pageParams } = require('../utils/validate');
+const { pageParams, toNumber, optionalDate, ValidationError } = require('../utils/validate');
 const { today, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const partyService = require('../services/partyService');
@@ -78,8 +78,13 @@ function listExpenses(req, res) {
 
 function createExpense(req, res) {
   try {
-    const { category, expense_date, amount, payment_mode, bank_account_id, description, reference_number } = req.body;
-    if (!category || !amount) return error(res, 'Category and amount required');
+    const { category, expense_date, payment_mode, bank_account_id, description, reference_number } = req.body;
+    if (!category) return error(res, 'Category and amount required', 400, null, 'ERR_REQUIRED');
+    // A blank/NaN amount used to reach SQLite as NULL and a negative amount was
+    // stored verbatim, silently inflating the bank balance the wrong way.
+    const amount = toNumber(req.body.amount, 'Amount', { min: 0 });
+    if (amount <= 0) return error(res, 'Amount must be greater than zero', 400, null, 'ERR_AMOUNT_POSITIVE');
+    const date = optionalDate(expense_date, 'Expense date') || today();
 
     const num = numberService.nextExpenseNumber();
     let baId = bank_account_id;
@@ -91,13 +96,13 @@ function createExpense(req, res) {
     const result = db.prepare(`
       INSERT INTO expenses (expense_number, category, expense_date, amount, payment_mode, bank_account_id, description, reference_number, created_by)
       VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(num, category, expense_date || today(), Number(amount), payment_mode || 'cash', baId || null, description || null, reference_number || null, req.user.id);
+    `).run(num, category, date, amount, payment_mode || 'cash', baId || null, description || null, reference_number || null, req.user.id);
 
     if (baId) partyService.updateBankBalance(baId, amount, 'debit');
 
     return success(res, db.prepare('SELECT * FROM expenses WHERE id = ?').get(result.lastInsertRowid), 'Expense recorded', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -138,8 +143,11 @@ function listIncomes(req, res) {
 
 function createIncome(req, res) {
   try {
-    const { category, income_date, amount, payment_mode, bank_account_id, description, reference_number } = req.body;
-    if (!category || !amount) return error(res, 'Category and amount required');
+    const { category, income_date, payment_mode, bank_account_id, description, reference_number } = req.body;
+    if (!category) return error(res, 'Category and amount required', 400, null, 'ERR_REQUIRED');
+    const amount = toNumber(req.body.amount, 'Amount', { min: 0 });
+    if (amount <= 0) return error(res, 'Amount must be greater than zero', 400, null, 'ERR_AMOUNT_POSITIVE');
+    const date = optionalDate(income_date, 'Income date') || today();
 
     const num = numberService.nextIncomeNumber();
     let baId = bank_account_id;
@@ -151,13 +159,13 @@ function createIncome(req, res) {
     const result = db.prepare(`
       INSERT INTO incomes (income_number, category, income_date, amount, payment_mode, bank_account_id, description, reference_number, created_by)
       VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(num, category, income_date || today(), Number(amount), payment_mode || 'cash', baId || null, description || null, reference_number || null, req.user.id);
+    `).run(num, category, date, amount, payment_mode || 'cash', baId || null, description || null, reference_number || null, req.user.id);
 
     if (baId) partyService.updateBankBalance(baId, amount, 'credit');
 
     return success(res, db.prepare('SELECT * FROM incomes WHERE id = ?').get(result.lastInsertRowid), 'Income recorded', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -189,11 +197,30 @@ function getJournal(req, res) {
 function createJournal(req, res) {
   try {
     const { entry_date, entry_type = 'journal', narration, lines = [] } = req.body;
-    if (lines.length < 2) return error(res, 'At least 2 lines required');
+    if (!Array.isArray(lines) || lines.length < 2) {
+      return error(res, 'At least 2 lines required', 400, null, 'ERR_EMPTY_LIST');
+    }
+
+    // Each line needs a real account and non-negative amounts. Without this a
+    // "-100 debit / -100 credit" entry balanced perfectly and was accepted,
+    // and blank account names produced unreadable ledger rows.
+    lines.forEach((line, index) => {
+      const label = `Line ${index + 1}`;
+      if (!String(line.account_name || '').trim()) {
+        throw new ValidationError(`${label}: account name is required`, 'ERR_REQUIRED');
+      }
+      toNumber(line.debit ?? 0, `${label} debit`, { min: 0 });
+      toNumber(line.credit ?? 0, `${label} credit`, { min: 0 });
+    });
 
     const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
     const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
-    if (Math.abs(totalDebit - totalCredit) > 0.01) return error(res, 'Debit and Credit must be equal');
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      return error(res, 'Debit and Credit must be equal', 400, null, 'ERR_UNBALANCED');
+    }
+    if (totalDebit <= 0) {
+      return error(res, 'Journal entry total must be greater than zero', 400, null, 'ERR_AMOUNT_POSITIVE');
+    }
 
     const num = numberService.nextJournalNumber();
     const result = db.prepare(`
@@ -215,7 +242,7 @@ function createJournal(req, res) {
     j.lines = db.prepare('SELECT * FROM journal_entry_lines WHERE journal_id = ?').all(jid);
     return success(res, j, 'Journal entry created', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 

@@ -56,7 +56,8 @@ function PartyPage({ type }) {
   const openEdit = (p) => { setForm({ ...p }); setEditId(p.id); setModal(true); };
 
   const save = async () => {
-    if (!form.name) return error(t('Name is required'));
+    if (saving) return undefined;
+    if (!String(form.name || '').trim()) return error(t('Name is required'));
     setSaving(true);
     try {
       if (editId) { await api.update(editId, form); success(t('Updated')); }
