@@ -27,16 +27,22 @@ function getDashboard(req, res) {
 
     // Profit: sales - COGS (purchase price * qty sold) - expenses today
     const salesRevenue = db.prepare(`
-      SELECT COALESCE(SUM(grand_total), 0) as total FROM sales
-      WHERE invoice_type IN ('sale','pos') AND status = 'completed' AND invoice_date = ?
-    `).get(t);
+      SELECT
+        (SELECT COALESCE(SUM(grand_total), 0) FROM sales
+         WHERE invoice_type IN ('sale','pos') AND status = 'completed' AND invoice_date = ?) -
+        (SELECT COALESCE(SUM(grand_total), 0) FROM sales
+         WHERE invoice_type = 'sale_return' AND status = 'completed' AND invoice_date = ?) as total
+    `).get(t, t);
 
     const cogs = db.prepare(`
-      SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)), 0) as total
+      SELECT COALESCE(SUM(
+        CASE WHEN s.invoice_type = 'sale_return' THEN -1 ELSE 1 END
+        * si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)
+      ), 0) as total
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
       LEFT JOIN products p ON p.id = si.product_id
-      WHERE s.invoice_type IN ('sale','pos') AND s.status = 'completed' AND s.invoice_date = ?
+      WHERE s.invoice_type IN ('sale','pos','sale_return') AND s.status = 'completed' AND s.invoice_date = ?
     `).get(t);
 
     const todayExpenses = db.prepare(`
@@ -98,16 +104,22 @@ function getDashboard(req, res) {
     const totalCustomers = db.prepare('SELECT COUNT(*) as c FROM customers WHERE is_active = 1').get().c;
     const totalSuppliers = db.prepare('SELECT COUNT(*) as c FROM suppliers WHERE is_active = 1').get().c;
     const totalProducts = db.prepare('SELECT COUNT(*) as c FROM products WHERE is_active = 1').get().c;
-    const stockValue = db.prepare('SELECT COALESCE(SUM(current_stock * purchase_price), 0) as v FROM products WHERE is_active = 1').get().v;
+    const stockValue = db.prepare(`
+      SELECT COALESCE(SUM(
+        COALESCE((SELECT SUM(pb.quantity * pb.purchase_price) FROM product_batches pb WHERE pb.product_id = products.id), 0)
+        + MAX(COALESCE(current_stock, 0) - COALESCE((SELECT SUM(pb.quantity) FROM product_batches pb WHERE pb.product_id = products.id), 0), 0) * COALESCE(purchase_price, 0)
+      ), 0) as v
+      FROM products WHERE is_active = 1 AND is_service = 0
+    `).get().v;
 
     const receivables = db.prepare(`
-      SELECT COALESCE(SUM(balance_amount), 0) as total FROM sales
-      WHERE invoice_type IN ('sale','pos') AND status = 'completed' AND balance_amount > 0
+      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total
+      FROM customers WHERE is_active = 1
     `).get();
 
     const payables = db.prepare(`
-      SELECT COALESCE(SUM(balance_amount), 0) as total FROM purchases
-      WHERE bill_type = 'purchase' AND status = 'completed' AND balance_amount > 0
+      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total
+      FROM suppliers WHERE is_active = 1
     `).get();
 
     return success(res, {

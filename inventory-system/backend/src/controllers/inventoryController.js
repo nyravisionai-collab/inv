@@ -249,6 +249,11 @@ function createTransfer(req, res) {
     const { from_warehouse_id, to_warehouse_id, transfer_date, items = [], notes } = req.body;
     if (!from_warehouse_id || !to_warehouse_id || !items.length) throw new Error('From/To warehouse and items required');
     if (from_warehouse_id === to_warehouse_id) throw new Error('Warehouses must be different');
+    for (const item of items) {
+      if (!item.product_id || Number(item.quantity) <= 0) throw new Error('Product and positive quantity required');
+      stockService.assertStockAvailable(item.product_id, item.quantity, from_warehouse_id);
+      if (item.batch_id) stockService.assertBatchAvailable(item.batch_id, item.quantity);
+    }
 
     const num = numberService.nextTransferNumber();
     const result = db.prepare(`
@@ -273,7 +278,7 @@ function createTransfer(req, res) {
     t.items = db.prepare('SELECT * FROM stock_transfer_items WHERE transfer_id = ?').all(t.id);
     return success(res, t, 'Stock transferred', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -309,12 +314,23 @@ function createAdjustment(req, res) {
     const insertItem = db.prepare('INSERT INTO stock_adjustment_items (adjustment_id, product_id, batch_id, previous_qty, new_qty, difference) VALUES (?,?,?,?,?,?)');
 
     for (const item of items) {
-      const ws = db.prepare('SELECT quantity FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ?').get(item.product_id, wh);
-      const prev = ws ? ws.quantity : 0;
+      let prev;
       const newQty = Number(item.new_qty);
-      const diff = newQty - prev;
-      insertItem.run(aid, item.product_id, item.batch_id || null, prev, newQty, diff);
-      stockService.setWarehouseStock(item.product_id, wh, newQty);
+      if (!Number.isFinite(newQty) || newQty < 0) throw new Error('New quantity must be non-negative');
+      if (item.batch_id) {
+        const batch = db.prepare('SELECT quantity FROM product_batches WHERE id = ? AND product_id = ?').get(item.batch_id, item.product_id);
+        prev = batch ? Number(batch.quantity || 0) : 0;
+        const diff = newQty - prev;
+        insertItem.run(aid, item.product_id, item.batch_id || null, prev, newQty, diff);
+        stockService.adjustWarehouseStock(item.product_id, wh, diff);
+        stockService.setBatchStock(item.batch_id, newQty);
+      } else {
+        const ws = db.prepare('SELECT quantity FROM warehouse_stock WHERE product_id = ? AND warehouse_id = ?').get(item.product_id, wh);
+        prev = ws ? Number(ws.quantity || 0) : 0;
+        const diff = newQty - prev;
+        insertItem.run(aid, item.product_id, item.batch_id || null, prev, newQty, diff);
+        stockService.setWarehouseStock(item.product_id, wh, newQty);
+      }
     }
 
     return db.prepare('SELECT * FROM stock_adjustments WHERE id = ?').get(aid);
@@ -325,7 +341,7 @@ function createAdjustment(req, res) {
     a.items = db.prepare('SELECT * FROM stock_adjustment_items WHERE adjustment_id = ?').all(a.id);
     return success(res, a, 'Stock adjusted', 201);
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 
@@ -354,7 +370,10 @@ function stockReport(req, res) {
       rows = db.prepare(`
         SELECT p.id, p.name, p.sku, p.barcode, p.purchase_price, p.selling_price, p.min_stock,
           p.current_stock as quantity, c.name as category_name, u.short_name as unit,
-          (p.current_stock * p.purchase_price) as stock_value
+          (
+            COALESCE((SELECT SUM(pb.quantity * pb.purchase_price) FROM product_batches pb WHERE pb.product_id = p.id), 0)
+            + MAX(COALESCE(p.current_stock, 0) - COALESCE((SELECT SUM(pb.quantity) FROM product_batches pb WHERE pb.product_id = p.id), 0), 0) * COALESCE(p.purchase_price, 0)
+          ) as stock_value
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN units u ON u.id = p.unit_id

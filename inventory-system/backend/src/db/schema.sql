@@ -301,7 +301,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
   discount_type TEXT DEFAULT 'amount',
   discount_value REAL DEFAULT 0,
   discount_amount REAL DEFAULT 0,
+  invoice_discount_amount REAL DEFAULT 0,
   tax_rate REAL DEFAULT 0,
+  tax_type TEXT DEFAULT 'exclusive' CHECK(tax_type IN ('inclusive','exclusive','none')),
+  taxable_amount REAL DEFAULT 0,
   tax_amount REAL DEFAULT 0,
   total REAL DEFAULT 0
 );
@@ -350,9 +353,15 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   discount_type TEXT DEFAULT 'amount',
   discount_value REAL DEFAULT 0,
   discount_amount REAL DEFAULT 0,
+  invoice_discount_amount REAL DEFAULT 0,
   tax_rate REAL DEFAULT 0,
+  tax_type TEXT DEFAULT 'exclusive' CHECK(tax_type IN ('inclusive','exclusive','none')),
+  taxable_amount REAL DEFAULT 0,
   tax_amount REAL DEFAULT 0,
-  total REAL DEFAULT 0
+  total REAL DEFAULT 0,
+  prev_purchase_price REAL,
+  prev_selling_price REAL,
+  prev_mrp REAL
 );
 
 CREATE TABLE IF NOT EXISTS payments (

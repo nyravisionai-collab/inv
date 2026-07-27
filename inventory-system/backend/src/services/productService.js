@@ -107,4 +107,40 @@ function applyPurchasePricing(productId, line = {}) {
   return db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
 }
 
-module.exports = { findByName, findOrCreateByName, applyPurchasePricing, generateSku };
+/**
+ * Rebuild a product's purchase price from the latest non-cancelled purchase.
+ * If there is no active purchase left, fall back to the price captured before
+ * the cancelled bill changed the product master.
+ */
+function recomputePurchasePricing(productId, fallback = {}) {
+  const latest = db.prepare(`
+    SELECT pi.unit_price, pi.prev_purchase_price, pi.prev_selling_price, pi.prev_mrp
+    FROM purchase_items pi
+    JOIN purchases p ON p.id = pi.purchase_id
+    WHERE pi.product_id = ? AND p.bill_type = 'purchase' AND p.status = 'completed'
+    ORDER BY p.bill_date DESC, p.id DESC, pi.id DESC
+    LIMIT 1
+  `).get(productId);
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+  if (!product) return null;
+
+  const purchasePrice = latest
+    ? round2(Number(latest.unit_price) || 0)
+    : round2(Number(fallback.purchase_price ?? fallback.prev_purchase_price ?? product.purchase_price) || 0);
+  const sellingPrice = latest && Number(latest.prev_selling_price) > 0
+    ? product.selling_price
+    : round2(Number(fallback.selling_price ?? fallback.prev_selling_price ?? product.selling_price) || 0);
+  const mrp = latest && Number(latest.prev_mrp) > 0
+    ? product.mrp
+    : round2(Number(fallback.mrp ?? fallback.prev_mrp ?? product.mrp) || 0);
+
+  db.prepare(`
+    UPDATE products SET purchase_price = ?, selling_price = ?, mrp = ?, updated_at = ?
+    WHERE id = ?
+  `).run(purchasePrice, sellingPrice, mrp, now(), productId);
+
+  return db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+}
+
+module.exports = { findByName, findOrCreateByName, applyPurchasePricing, recomputePurchasePricing, generateSku };

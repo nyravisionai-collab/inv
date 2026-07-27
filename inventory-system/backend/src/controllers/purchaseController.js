@@ -99,6 +99,10 @@ function create(req, res) {
     const wh = warehouse_id || stockService.getDefaultWarehouse()?.id;
 
     const processedItems = items.map((item, index) => {
+      if (item.tax_type === undefined && item.product_id) {
+        const prodTax = db.prepare('SELECT tax_type FROM products WHERE id = ?').get(item.product_id);
+        if (prodTax && prodTax.tax_type) item = { ...item, tax_type: prodTax.tax_type };
+      }
       const v = validateLineItem(item, index);
       const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
 
@@ -119,6 +123,11 @@ function create(req, res) {
         if (linked) productId = linked.id;
       }
 
+      const productBefore = productId ? db.prepare('SELECT purchase_price, selling_price, mrp FROM products WHERE id = ?').get(productId) : null;
+      const batchId = (bill_type === 'purchase_return' && productId && item.batch_number)
+        ? db.prepare('SELECT id FROM product_batches WHERE product_id = ? AND batch_number = ?').get(productId, item.batch_number)?.id || null
+        : null;
+
       return {
         product_id: productId,
         product_name: item.product_name || item.name,
@@ -126,16 +135,24 @@ function create(req, res) {
         selling_price: item.selling_price !== undefined ? Number(item.selling_price) || 0 : 0,
         hsn_code: item.hsn_code || null,
         batch_number: item.batch_number || null,
+        batch_id: batchId,
         expiry_date: optionalDate(item.expiry_date, `Item ${index + 1} expiry date`),
         quantity: v.quantity,
         unit_id: item.unit_id || null,
         unit_price: v.unitPrice,
         discount_type: v.discountType,
         discount_value: v.discountValue,
+        line_discount_amount: calc.discountAmount,
         discount_amount: calc.discountAmount,
+        invoice_discount_amount: 0,
         tax_rate: v.taxRate,
+        tax_type: v.taxType,
+        taxable_amount: calc.taxableAmount,
         tax_amount: calc.taxAmount,
         total: calc.total,
+        prev_purchase_price: productBefore ? Number(productBefore.purchase_price) || 0 : null,
+        prev_selling_price: productBefore ? Number(productBefore.selling_price) || 0 : null,
+        prev_mrp: productBefore ? Number(productBefore.mrp) || 0 : null,
       };
     });
 
@@ -150,6 +167,12 @@ function create(req, res) {
     const totals = calcInvoiceTotals(processedItems, money.discountType, money.discountValue,
       money.shippingCharges, money.otherCharges, money.roundOff);
     const paid = money.paidAmount;
+    if (paid > totals.grandTotal + 0.009) {
+      const err = new Error('Paid amount cannot exceed the grand total');
+      err.status = 400;
+      err.code = 'ERR_PAYMENT_RANGE';
+      throw err;
+    }
     const balance = round2(totals.grandTotal - paid);
     let paymentStatus = 'unpaid';
     if (paid >= totals.grandTotal) paymentStatus = 'paid';
@@ -171,12 +194,21 @@ function create(req, res) {
 
     const purchaseId = result.lastInsertRowid;
     const insertItem = db.prepare(`
-      INSERT INTO purchase_items (purchase_id, product_id, product_name, hsn_code, batch_number, expiry_date, quantity, unit_id, unit_price, discount_type, discount_value, discount_amount, tax_rate, tax_amount, total)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO purchase_items (
+        purchase_id, product_id, product_name, hsn_code, batch_number, expiry_date,
+        quantity, unit_id, unit_price, discount_type, discount_value, discount_amount,
+        invoice_discount_amount, tax_rate, tax_type, taxable_amount, tax_amount, total,
+        prev_purchase_price, prev_selling_price, prev_mrp
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
 
     for (const item of processedItems) {
-      insertItem.run(purchaseId, item.product_id, item.product_name, item.hsn_code, item.batch_number, item.expiry_date, item.quantity, item.unit_id, item.unit_price, item.discount_type, item.discount_value, item.discount_amount, item.tax_rate, item.tax_amount, item.total);
+      insertItem.run(
+        purchaseId, item.product_id, item.product_name, item.hsn_code, item.batch_number, item.expiry_date,
+        item.quantity, item.unit_id, item.unit_price, item.discount_type, item.discount_value, item.discount_amount,
+        item.invoice_discount_amount, item.tax_rate, item.tax_type, item.taxable_amount, item.tax_amount, item.total,
+        item.prev_purchase_price, item.prev_selling_price, item.prev_mrp
+      );
 
       if (status === 'completed' && item.product_id) {
         const prod = db.prepare('SELECT is_service, has_batch FROM products WHERE id = ?').get(item.product_id);
@@ -195,7 +227,7 @@ function create(req, res) {
               }
             }
           } else if (bill_type === 'purchase_return') {
-            stockService.reduceStock(item.product_id, item.quantity, wh);
+            stockService.reduceStock(item.product_id, item.quantity, wh, item.batch_id);
           }
         }
         // The rate actually paid becomes the product's purchase price (plus
@@ -208,23 +240,25 @@ function create(req, res) {
     }
 
     if (paid > 0 && status === 'completed') {
-      const payNum = numberService.nextNumber('payment_out');
+      const isReturn = bill_type === 'purchase_return';
+      const paymentType = isReturn ? 'payment_in' : 'payment_out';
+      const payNum = numberService.nextNumber(paymentType);
+      let baId = bank_account_id || null;
+      if (!baId) {
+        const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
+        baId = cashAcc?.id || null;
+      }
       const payRes = db.prepare(`
         INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, purchase_id, created_by)
         VALUES (?,?,?,?,?,?,?,?,?,?)
-      `).run(payNum, 'payment_out', 'supplier', supplier_id || null, date, paid, payment_mode, bank_account_id || null, purchaseId, req.user.id);
+      `).run(payNum, paymentType, 'supplier', supplier_id || null, date, paid, payment_mode, baId, purchaseId, req.user.id);
 
       // Already reflected in the bill's paid_amount — record the allocation so
-      // the supplier balance does not subtract it twice.
+      // supplier balance and payment deletion do not double count it.
       db.prepare('INSERT INTO payment_allocations (payment_id, purchase_id, amount) VALUES (?,?,?)')
         .run(payRes.lastInsertRowid, purchaseId, paid);
 
-      if (bank_account_id) {
-        partyService.updateBankBalance(bank_account_id, paid, 'debit');
-      } else {
-        const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
-        if (cashAcc) partyService.updateBankBalance(cashAcc.id, paid, 'debit');
-      }
+      if (baId) partyService.updateBankBalance(baId, paid, isReturn ? 'credit' : 'debit');
     }
 
     if (supplier_id) partyService.updateSupplierBalance(supplier_id);
@@ -249,21 +283,37 @@ function cancel(req, res) {
     if (!purchase) throw Object.assign(new Error('Purchase not found'), { status: 404, code: 'ERR_NOT_FOUND' });
     if (purchase.status === 'cancelled') throw Object.assign(new Error('Already cancelled'), { status: 400, code: 'ERR_ALREADY_CANCELLED' });
 
+    const priceFallbacks = new Map();
     if (purchase.status === 'completed') {
       const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id = ?').all(purchase.id);
       for (const item of items) {
         if (!item.product_id) continue;
+        if (!priceFallbacks.has(item.product_id)) {
+          priceFallbacks.set(item.product_id, {
+            prev_purchase_price: item.prev_purchase_price,
+            prev_selling_price: item.prev_selling_price,
+            prev_mrp: item.prev_mrp,
+          });
+        }
         const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
         if (prod && prod.is_service) continue;
+        const batchId = item.batch_number
+          ? db.prepare('SELECT id FROM product_batches WHERE product_id = ? AND batch_number = ?').get(item.product_id, item.batch_number)?.id || null
+          : null;
         if (purchase.bill_type === 'purchase') {
-          stockService.reduceStock(item.product_id, item.quantity, purchase.warehouse_id);
+          stockService.reduceStock(item.product_id, item.quantity, purchase.warehouse_id, batchId);
         } else if (purchase.bill_type === 'purchase_return') {
-          stockService.increaseStock(item.product_id, item.quantity, purchase.warehouse_id);
+          stockService.increaseStock(item.product_id, item.quantity, purchase.warehouse_id, batchId);
         }
       }
     }
 
     db.prepare("UPDATE purchases SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now(), purchase.id);
+    if (purchase.bill_type === 'purchase') {
+      for (const [productId, fallback] of priceFallbacks.entries()) {
+        productService.recomputePurchasePricing(productId, fallback);
+      }
+    }
     // Same as sales: a cancelled bill releases whatever was paid against it.
     paymentService.releaseDocument('payment_out', purchase.id);
     if (purchase.supplier_id) partyService.updateSupplierBalance(purchase.supplier_id);

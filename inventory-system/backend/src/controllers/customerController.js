@@ -45,13 +45,16 @@ function create(req, res) {
     const { name, phone, email, address, city, state, pincode, gstin, pan, credit_limit, opening_balance, balance_type, notes } = req.body;
     if (!name) return error(res, 'Customer name is required');
 
+    const opening = Number(opening_balance) || 0;
+    const type = balance_type || 'debit';
+    const current = type === 'credit' ? -opening : opening;
     const result = db.prepare(`
       INSERT INTO customers (name, phone, email, address, city, state, pincode, gstin, pan, credit_limit, opening_balance, balance_type, current_balance, notes)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       name, phone || null, email || null, address || null, city || null, state || null, pincode || null,
-      gstin || null, pan || null, Number(credit_limit) || 0, Number(opening_balance) || 0,
-      balance_type || 'debit', Number(opening_balance) || 0, notes || null
+      gstin || null, pan || null, Number(credit_limit) || 0, opening,
+      type, current, notes || null
     );
 
     return success(res, db.prepare('SELECT * FROM customers WHERE id = ?').get(result.lastInsertRowid), 'Customer created', 201);
@@ -124,9 +127,12 @@ function ledger(req, res) {
         UNION ALL
         SELECT payment_date, payment_number, 'Payment In', 0, amount, id, 'payment'
         FROM payments WHERE party_type = 'customer' AND party_id = ? AND payment_type = 'payment_in'
+        UNION ALL
+        SELECT payment_date, payment_number, 'Refund Out', amount, 0, id, 'payment'
+        FROM payments WHERE party_type = 'customer' AND party_id = ? AND payment_type = 'payment_out'
       ) WHERE 1=1 ${dateFilter.replace(/d/g, 'd')}
       ORDER BY d ASC, ref ASC
-    `).all(req.params.id, req.params.id, req.params.id, ...(from_date ? [from_date] : []), ...(to_date ? [to_date] : []));
+    `).all(req.params.id, req.params.id, req.params.id, req.params.id, ...(from_date ? [from_date] : []), ...(to_date ? [to_date] : []));
 
     let balance = customer.balance_type === 'debit' ? Number(customer.opening_balance || 0) : -Number(customer.opening_balance || 0);
     const ledger = entries.map((e) => {
@@ -143,8 +149,7 @@ function ledger(req, res) {
 function outstanding(req, res) {
   try {
     const rows = db.prepare(`
-      SELECT c.*, 
-        (SELECT COALESCE(SUM(balance_amount),0) FROM sales WHERE customer_id = c.id AND status='completed' AND balance_amount > 0) as outstanding
+      SELECT c.*, c.current_balance as outstanding
       FROM customers c WHERE c.is_active = 1 AND c.current_balance > 0
       ORDER BY c.current_balance DESC
     `).all();
