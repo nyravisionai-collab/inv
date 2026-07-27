@@ -5,6 +5,7 @@ import { salesAPI, customersAPI, productsAPI, inventoryAPI } from '../api/client
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
+import { calcLineTotal, calcInvoiceTotals } from '../utils/money';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -12,7 +13,7 @@ import EmptyState from '../components/EmptyState';
 const TYPE_MAP = {
   // A POS bill is a sale, so the invoice list covers both and the counter
   // sales are no longer invisible outside the POS screen.
-  '/sales': { type: 'sale,pos', title: 'Sale Invoices', createLabel: 'New Sale' },
+  '/sales': { type: 'sale,pos', createType: 'sale', title: 'Sale Invoices', createLabel: 'New Sale' },
   '/estimates': { type: 'estimate', title: 'Estimates / Quotations', createLabel: 'New Estimate' },
   '/sale-orders': { type: 'sale_order', title: 'Sale Orders', createLabel: 'New Sale Order' },
   '/sale-returns': { type: 'sale_return', title: 'Sale Returns', createLabel: 'New Credit Note' },
@@ -140,7 +141,7 @@ function SaleForm() {
     discount_type: 'amount', discount_value: 0, shipping_charges: 0,
     notes: '', paid_amount: 0, payment_mode: 'cash',
   });
-  const [items, setItems] = useState([{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, discount_value: 0, discount_type: 'amount' }]);
+  const [items, setItems] = useState([{ product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }]);
   const [productSearch, setProductSearch] = useState('');
 
   useEffect(() => {
@@ -163,6 +164,7 @@ function SaleForm() {
         quantity: 1,
         unit_price: product.selling_price,
         tax_rate: product.tax_rate || 0,
+        tax_type: product.tax_type || 'exclusive',
         discount_value: 0,
         discount_type: 'amount',
         hsn_code: product.hsn_code,
@@ -188,6 +190,7 @@ function SaleForm() {
         next[idx].product_name = p.name;
         next[idx].unit_price = p.selling_price;
         next[idx].tax_rate = p.tax_rate || 0;
+        next[idx].tax_type = p.tax_type || 'exclusive';
         next[idx].hsn_code = p.hsn_code;
         next[idx].unit_id = p.unit_id;
       }
@@ -201,27 +204,11 @@ function SaleForm() {
   };
 
   const calcItemTotal = (item) => {
-    const sub = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    const disc = item.discount_type === 'percent' ? sub * (Number(item.discount_value) || 0) / 100 : (Number(item.discount_value) || 0);
-    const after = sub - disc;
-    const tax = after * (Number(item.tax_rate) || 0) / 100;
-    return { sub, disc, tax, total: after + tax };
+    const c = calcLineTotal(item);
+    return { sub: c.gross, disc: c.discount, tax: c.tax, total: c.total };
   };
 
-  const totals = (() => {
-    let subtotal = 0, taxAmount = 0, itemDisc = 0;
-    items.forEach((item) => {
-      const c = calcItemTotal(item);
-      subtotal += c.sub;
-      taxAmount += c.tax;
-      itemDisc += c.disc;
-    });
-    const invDisc = form.discount_type === 'percent'
-      ? (subtotal - itemDisc) * (Number(form.discount_value) || 0) / 100
-      : (Number(form.discount_value) || 0);
-    const grand = subtotal - itemDisc - invDisc + taxAmount + (Number(form.shipping_charges) || 0);
-    return { subtotal, taxAmount, discount: itemDisc + invDisc, grand: Math.round(grand * 100) / 100 };
-  })();
+  const totals = calcInvoiceTotals(items, form);
 
   const filteredProducts = productSearch
     ? products.filter((p) => p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.sku?.includes(productSearch) || p.barcode?.includes(productSearch))
@@ -234,7 +221,7 @@ function SaleForm() {
     try {
       const res = await salesAPI.create({
         ...form,
-        invoice_type: cfg.type,
+        invoice_type: cfg.createType || cfg.type,
         customer_id: form.customer_id || null,
         warehouse_id: form.warehouse_id || null,
         items: validItems,
@@ -348,7 +335,7 @@ function SaleForm() {
           </table>
         </div>
         <div style={{ padding: 12 }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, discount_value: 0, discount_type: 'amount' }])}>
+          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }])}>
             + Add Row
           </button>
         </div>

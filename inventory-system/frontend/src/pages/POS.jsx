@@ -4,6 +4,7 @@ import { productsAPI, salesAPI, customersAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
+import { calcLineTotal, round2 } from '../utils/money';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -41,6 +42,7 @@ export default function POS() {
         tax_rate: product.tax_rate || 0,
         discount_value: 0,
         discount_type: 'amount',
+        tax_type: product.tax_type || 'exclusive',
         hsn_code: product.hsn_code,
         unit_id: product.unit_id,
         stock: product.current_stock,
@@ -71,14 +73,10 @@ export default function POS() {
     }
   };
 
-  const calcLine = (item) => {
-    const sub = item.quantity * item.unit_price;
-    const tax = sub * (item.tax_rate || 0) / 100;
-    return sub + tax;
-  };
+  const calcLine = (item) => calcLineTotal(item).total;
 
   const grandTotal = cart.reduce((s, i) => s + calcLine(i), 0);
-  const rounded = Math.round(grandTotal * 100) / 100;
+  const rounded = round2(grandTotal);
 
   const filtered = search
     ? products.filter((p) =>

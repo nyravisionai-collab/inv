@@ -65,8 +65,9 @@ describe('helpers: money maths', () => {
   it('invoice totals do not double-count inclusive tax', () => {
     const line = calcLineTotal(2, 118, 'amount', 0, 18, 'inclusive');
     const items = [{
-      unit_price: 118, quantity: 2,
-      tax_amount: line.taxAmount, discount_amount: line.discountAmount, total: line.total,
+      unit_price: 118, quantity: 2, tax_rate: 18, tax_type: 'inclusive',
+      taxable_amount: line.taxableAmount, tax_amount: line.taxAmount,
+      discount_amount: line.discountAmount, total: line.total,
     }];
     const totals = calcInvoiceTotals(items, 'amount', 0);
     assert.strictEqual(totals.grandTotal, 236);
@@ -76,12 +77,28 @@ describe('helpers: money maths', () => {
   it('invoice-level charges and discount apply to the grand total', () => {
     const line = calcLineTotal(1, 100, 'amount', 0, 0, 'none');
     const items = [{
-      unit_price: 100, quantity: 1,
-      tax_amount: 0, discount_amount: 0, total: line.total,
+      unit_price: 100, quantity: 1, tax_rate: 0, tax_type: 'none',
+      taxable_amount: line.taxableAmount, tax_amount: 0,
+      discount_amount: 0, total: line.total,
     }];
     const totals = calcInvoiceTotals(items, 'amount', 10, 25, 5, 0.4);
     // 100 - 10 discount + 25 shipping + 5 other + 0.40 round-off
     assert.strictEqual(totals.grandTotal, 120.4);
+  });
+
+
+  it('invoice-level discount reduces taxable value before tax', () => {
+    const line = calcLineTotal(1, 100, 'amount', 0, 18, 'exclusive');
+    const items = [{
+      unit_price: 100, quantity: 1, tax_rate: 18, tax_type: 'exclusive',
+      taxable_amount: line.taxableAmount, tax_amount: line.taxAmount,
+      discount_amount: line.discountAmount, total: line.total,
+    }];
+    const totals = calcInvoiceTotals(items, 'amount', 10);
+    assert.strictEqual(items[0].taxable_amount, 90);
+    assert.strictEqual(items[0].tax_amount, 16.2);
+    assert.strictEqual(totals.taxAmount, 16.2);
+    assert.strictEqual(totals.grandTotal, 106.2);
   });
 });
 

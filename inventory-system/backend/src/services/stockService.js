@@ -61,19 +61,43 @@ function assertStockAvailable(productId, quantity, warehouseId) {
   }
 }
 
-/** Validate a whole basket at once, aggregating repeats of the same product. */
+/** Validate a whole basket at once, aggregating repeats of the same product/batch. */
 function assertItemsAvailable(items, warehouseId) {
   if (negativeStockAllowed()) return;
-  const totals = new Map();
+  const productTotals = new Map();
+  const batchTotals = new Map();
   for (const item of items) {
     if (!item.product_id) continue;
     const product = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
     if (!product || product.is_service) continue;
-    const key = item.product_id;
-    totals.set(key, (totals.get(key) || 0) + Math.abs(Number(item.quantity) || 0));
+    productTotals.set(item.product_id, (productTotals.get(item.product_id) || 0) + Math.abs(Number(item.quantity) || 0));
+    if (item.batch_id) {
+      batchTotals.set(item.batch_id, (batchTotals.get(item.batch_id) || 0) + Math.abs(Number(item.quantity) || 0));
+    }
   }
-  for (const [productId, qty] of totals) {
+  for (const [productId, qty] of productTotals) {
     assertStockAvailable(productId, qty, warehouseId);
+  }
+  for (const [batchId, qty] of batchTotals) {
+    assertBatchAvailable(batchId, qty);
+  }
+}
+
+function assertBatchAvailable(batchId, quantity) {
+  if (negativeStockAllowed()) return;
+  const batch = db.prepare(`
+    SELECT b.quantity, b.batch_number, p.name as product_name
+    FROM product_batches b LEFT JOIN products p ON p.id = b.product_id
+    WHERE b.id = ?
+  `).get(batchId);
+  if (!batch) return;
+  const available = Number(batch.quantity || 0);
+  const needed = Math.abs(Number(quantity) || 0);
+  if (needed > available + 1e-9) {
+    throw new ValidationError(
+      `Insufficient batch stock for "${batch.product_name || `batch #${batchId}`}" (${batch.batch_number}): available ${round2(available)}, required ${round2(needed)}`,
+      'ERR_INSUFFICIENT_STOCK'
+    );
   }
 }
 
@@ -116,16 +140,33 @@ function setWarehouseStock(productId, warehouseId, quantity) {
   return updateProductStock(productId);
 }
 
-function reduceStock(productId, quantity, warehouseId = null) {
-  const wh = warehouseId || getDefaultWarehouse()?.id;
-  if (!wh) return;
-  adjustWarehouseStock(productId, wh, -Math.abs(quantity));
+function adjustBatchStock(batchId, qtyDelta) {
+  if (!batchId) return;
+  const existing = db.prepare('SELECT id, quantity FROM product_batches WHERE id = ?').get(batchId);
+  if (!existing) return;
+  const newQty = round2(Number(existing.quantity || 0) + Number(qtyDelta || 0));
+  db.prepare('UPDATE product_batches SET quantity = ? WHERE id = ?').run(newQty, batchId);
 }
 
-function increaseStock(productId, quantity, warehouseId = null) {
+function setBatchStock(batchId, quantity) {
+  if (!batchId) return;
+  db.prepare('UPDATE product_batches SET quantity = ? WHERE id = ?').run(round2(quantity), batchId);
+}
+
+function reduceStock(productId, quantity, warehouseId = null, batchId = null) {
   const wh = warehouseId || getDefaultWarehouse()?.id;
   if (!wh) return;
-  adjustWarehouseStock(productId, wh, Math.abs(quantity));
+  const qty = Math.abs(Number(quantity) || 0);
+  adjustWarehouseStock(productId, wh, -qty);
+  if (batchId) adjustBatchStock(batchId, -qty);
+}
+
+function increaseStock(productId, quantity, warehouseId = null, batchId = null) {
+  const wh = warehouseId || getDefaultWarehouse()?.id;
+  if (!wh) return;
+  const qty = Math.abs(Number(quantity) || 0);
+  adjustWarehouseStock(productId, wh, qty);
+  if (batchId) adjustBatchStock(batchId, qty);
 }
 
 function checkLowStock() {
@@ -169,6 +210,9 @@ module.exports = {
   updateProductStock,
   adjustWarehouseStock,
   setWarehouseStock,
+  adjustBatchStock,
+  setBatchStock,
+  assertBatchAvailable,
   reduceStock,
   increaseStock,
   checkLowStock,

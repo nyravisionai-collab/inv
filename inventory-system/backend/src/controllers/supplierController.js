@@ -45,13 +45,16 @@ function create(req, res) {
     const { name, phone, email, address, city, state, pincode, gstin, pan, opening_balance, balance_type, notes } = req.body;
     if (!name) return error(res, 'Supplier name is required');
 
+    const opening = Number(opening_balance) || 0;
+    const type = balance_type || 'credit';
+    const current = type === 'debit' ? -opening : opening;
     const result = db.prepare(`
       INSERT INTO suppliers (name, phone, email, address, city, state, pincode, gstin, pan, opening_balance, balance_type, current_balance, notes)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       name, phone || null, email || null, address || null, city || null, state || null, pincode || null,
-      gstin || null, pan || null, Number(opening_balance) || 0, balance_type || 'credit',
-      Number(opening_balance) || 0, notes || null
+      gstin || null, pan || null, opening, type,
+      current, notes || null
     );
 
     return success(res, db.prepare('SELECT * FROM suppliers WHERE id = ?').get(result.lastInsertRowid), 'Supplier created', 201);
@@ -117,8 +120,11 @@ function ledger(req, res) {
         UNION ALL
         SELECT payment_date, payment_number, 'Payment Out', 0, amount, id
         FROM payments WHERE party_type = 'supplier' AND party_id = ? AND payment_type = 'payment_out'
+        UNION ALL
+        SELECT payment_date, payment_number, 'Refund In', amount, 0, id
+        FROM payments WHERE party_type = 'supplier' AND party_id = ? AND payment_type = 'payment_in'
       ) ORDER BY d ASC
-    `).all(req.params.id, req.params.id, req.params.id);
+    `).all(req.params.id, req.params.id, req.params.id, req.params.id);
 
     let balance = supplier.balance_type === 'credit' ? Number(supplier.opening_balance || 0) : -Number(supplier.opening_balance || 0);
     const ledgerEntries = entries.map((e) => {
@@ -135,7 +141,8 @@ function ledger(req, res) {
 function outstanding(req, res) {
   try {
     const rows = db.prepare(`
-      SELECT s.* FROM suppliers s WHERE s.is_active = 1 AND s.current_balance > 0
+      SELECT s.*, s.current_balance as outstanding
+      FROM suppliers s WHERE s.is_active = 1 AND s.current_balance > 0
       ORDER BY s.current_balance DESC
     `).all();
     return success(res, rows);

@@ -520,4 +520,275 @@ describe('Inventory API (no-auth offline mode)', () => {
     });
     assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 0);
   });
+
+  it('keeps inclusive-tax backend totals, GST taxable value, and overpayment validation in sync', async () => {
+    const prod = await req('POST', '/products', {
+      name: 'Audit Inclusive API Item', sku: 'AIA-1', selling_price: 118,
+      purchase_price: 70, tax_rate: 18, tax_type: 'inclusive', opening_stock: 5,
+    });
+
+    const overpay = await req('POST', '/sales', {
+      invoice_type: 'pos', status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 118, tax_rate: 18 }],
+      paid_amount: 139.24,
+    });
+    assert.strictEqual(overpay.status, 400);
+    assert.strictEqual(overpay.data.code, 'ERR_PAYMENT_RANGE');
+
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'pos', status: 'completed', invoice_date: '2026-08-01',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 118, tax_rate: 18 }],
+      paid_amount: 118,
+    });
+    assert.strictEqual(sale.status, 201);
+    assert.strictEqual(sale.data.data.grand_total, 118);
+    assert.strictEqual(sale.data.data.tax_amount, 18);
+    assert.strictEqual(sale.data.data.balance_amount, 0);
+    assert.strictEqual(sale.data.data.items[0].tax_type, 'inclusive');
+    assert.strictEqual(sale.data.data.items[0].taxable_amount, 100);
+
+    const gst = await req('GET', '/reports/gst?from_date=2026-08-01&to_date=2026-08-01');
+    const row = gst.data.data.outwardSupply.find((x) => x.id === sale.data.data.id);
+    assert.strictEqual(row.subtotal, 100);
+    const rate = gst.data.data.rateWise.find((x) => x.rate === 18);
+    assert.strictEqual(rate.taxable_value, 100);
+  });
+
+  it('applies bill-level discount before tax and rejects excessive bill discounts', async () => {
+    const prod = await req('POST', '/products', {
+      name: 'Audit Discount Tax Item', sku: 'ADT-1', selling_price: 100, purchase_price: 40, tax_rate: 18, opening_stock: 5,
+    });
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'sale', status: 'completed', discount_type: 'amount', discount_value: 10,
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 100, tax_rate: 18 }],
+    });
+    assert.strictEqual(sale.status, 201);
+    assert.strictEqual(sale.data.data.tax_amount, 16.2);
+    assert.strictEqual(sale.data.data.grand_total, 106.2);
+    assert.strictEqual(sale.data.data.items[0].taxable_amount, 90);
+
+    const bad = await req('POST', '/sales', {
+      invoice_type: 'sale', status: 'completed', discount_type: 'amount', discount_value: 150,
+      items: [{ product_name: 'Too Much Discount', quantity: 1, unit_price: 100 }],
+    });
+    assert.strictEqual(bad.status, 400);
+    assert.strictEqual(bad.data.code, 'ERR_DISCOUNT_RANGE');
+  });
+
+  it('nets sale and purchase returns into receivables, payables and outstanding lists', async () => {
+    const beforeDash = await req('GET', '/dashboard');
+    const cid = (await req('POST', '/customers', { name: 'Audit Return Net Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Audit Return Net Product', sku: 'ARNP-1', selling_price: 100, purchase_price: 40, opening_stock: 10,
+    })).data.data.id;
+    await req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed',
+      items: [{ product_id: pid, product_name: 'Audit Return Net Product', quantity: 2, unit_price: 100 }],
+    });
+    await req('POST', '/sales', {
+      invoice_type: 'sale_return', customer_id: cid, status: 'completed',
+      items: [{ product_id: pid, product_name: 'Audit Return Net Product', quantity: 1, unit_price: 100 }],
+    });
+    const cust = await req('GET', `/customers/${cid}`);
+    assert.strictEqual(cust.data.data.current_balance, 100);
+    const out = await req('GET', '/customers/outstanding');
+    assert.strictEqual(out.data.data.find((x) => x.id === cid).outstanding, 100);
+    const afterSalesDash = await req('GET', '/dashboard');
+    assert.strictEqual(afterSalesDash.data.data.receivables, beforeDash.data.data.receivables + 100);
+
+    const sid = (await req('POST', '/suppliers', { name: 'Audit Return Net Supp' })).data.data.id;
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', supplier_id: sid, status: 'completed',
+      items: [{ product_name: 'Audit Return Net Purchase Product', quantity: 2, unit_price: 100 }],
+    });
+    const created = (await req('GET', '/products?search=Audit Return Net Purchase Product')).data.data[0];
+    await req('POST', '/purchases', {
+      bill_type: 'purchase_return', supplier_id: sid, status: 'completed',
+      items: [{ product_id: created.id, product_name: created.name, quantity: 1, unit_price: 100 }],
+    });
+    const supp = await req('GET', `/suppliers/${sid}`);
+    assert.strictEqual(supp.data.data.current_balance, 100);
+    const sout = await req('GET', '/suppliers/outstanding');
+    assert.strictEqual(sout.data.data.find((x) => x.id === sid).outstanding, 100);
+    const afterPurchaseDash = await req('GET', '/dashboard');
+    assert.strictEqual(afterPurchaseDash.data.data.payables, afterSalesDash.data.data.payables + 100);
+  });
+
+  it('records paid sale and purchase returns as refund-direction payments with matching ledgers', async () => {
+    const cashBefore = (await req('GET', '/banks')).data.data.find((b) => b.account_type === 'cash').current_balance;
+    const cid = (await req('POST', '/customers', { name: 'Audit Refund Cust' })).data.data.id;
+    const ret = await req('POST', '/sales', {
+      invoice_type: 'sale_return', customer_id: cid, status: 'completed',
+      items: [{ product_name: 'Audit Refund Service', quantity: 1, unit_price: 100 }],
+      paid_amount: 100,
+    });
+    const retDetail = await req('GET', `/sales/${ret.data.data.id}`);
+    assert.strictEqual(retDetail.data.data.payments[0].payment_type, 'payment_out');
+    assert.ok(retDetail.data.data.payments[0].bank_account_id);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 0);
+    assert.strictEqual((await req('GET', `/customers/${cid}/ledger`)).data.data.closing_balance, 0);
+    const cashAfterRefund = (await req('GET', '/banks')).data.data.find((b) => b.account_type === 'cash').current_balance;
+    assert.strictEqual(cashAfterRefund, cashBefore - 100);
+
+    const sid = (await req('POST', '/suppliers', { name: 'Audit Supplier Refund' })).data.data.id;
+    const prod = await req('POST', '/products', {
+      name: 'Audit Supplier Refund Item', sku: 'ASR-1', purchase_price: 50, selling_price: 80, opening_stock: 1,
+    });
+    const pret = await req('POST', '/purchases', {
+      bill_type: 'purchase_return', supplier_id: sid, status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 50 }],
+      paid_amount: 50,
+    });
+    const pretDetail = await req('GET', `/purchases/${pret.data.data.id}`);
+    assert.strictEqual(pretDetail.data.data.payments[0].payment_type, 'payment_in');
+    assert.ok(pretDetail.data.data.payments[0].bank_account_id);
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 0);
+    assert.strictEqual((await req('GET', `/suppliers/${sid}/ledger`)).data.data.closing_balance, 0);
+  });
+
+  it('stores auto cash payment account ids, includes them in cash-book, and reverses cash on delete', async () => {
+    const banksBefore = await req('GET', '/banks');
+    const cash = banksBefore.data.data.find((b) => b.account_type === 'cash');
+    const cid = (await req('POST', '/customers', { name: 'Audit Cash Payment Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Audit Cash Payment Product', sku: 'ACPP-1', selling_price: 100, purchase_price: 30, opening_stock: 3,
+    })).data.data.id;
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed', invoice_date: '2026-12-31',
+      items: [{ product_id: pid, product_name: 'Audit Cash Payment Product', quantity: 1, unit_price: 100 }],
+      paid_amount: 100,
+    });
+    const detail = await req('GET', `/sales/${sale.data.data.id}`);
+    const payment = detail.data.data.payments[0];
+    assert.strictEqual(payment.bank_account_id, cash.id);
+
+    let banks = await req('GET', '/banks');
+    const cashAfterSale = banks.data.data.find((b) => b.id === cash.id).current_balance;
+    assert.strictEqual(cashAfterSale, cash.current_balance + 100);
+    const book = await req('GET', `/cash-book?bank_account_id=${cash.id}&from_date=2026-12-31&to_date=2026-12-31`);
+    assert.strictEqual(book.data.data.closing_balance, cashAfterSale);
+    assert.ok(book.data.data.entries.find((e) => e.ref === payment.payment_number));
+
+    await req('DELETE', `/payments/${payment.id}`);
+    banks = await req('GET', '/banks');
+    assert.strictEqual(banks.data.data.find((b) => b.id === cash.id).current_balance, cash.current_balance);
+    const afterSale = await req('GET', `/sales/${sale.data.data.id}`);
+    assert.strictEqual(afterSale.data.data.paid_amount, 0);
+    assert.strictEqual(afterSale.data.data.balance_amount, 100);
+  });
+
+  it('uses batch cost for COGS, updates batch quantity, and values stock by batches', async () => {
+    const prod = await req('POST', '/products', {
+      name: 'Audit Batch Valuation Item', sku: 'ABV-1', selling_price: 30, purchase_price: 0, has_batch: true,
+    });
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 10, unit_price: 10, batch_number: 'ABV10' }],
+    });
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 10, unit_price: 20, batch_number: 'ABV20' }],
+    });
+    const withBatches = await req('GET', `/products/${prod.data.data.id}`);
+    const b10 = withBatches.data.data.batches.find((b) => b.batch_number === 'ABV10');
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'sale', status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, batch_id: b10.id, quantity: 3, unit_price: 30 }],
+    });
+    assert.strictEqual(sale.data.data.items[0].cost_price, 10);
+    const after = await req('GET', `/products/${prod.data.data.id}`);
+    assert.strictEqual(after.data.data.batches.find((b) => b.batch_number === 'ABV10').quantity, 7);
+    assert.strictEqual(after.data.data.current_stock, 17);
+    const stock = await req('GET', '/stock/report?search=Audit Batch Valuation Item');
+    assert.strictEqual(stock.data.data.find((x) => x.id === prod.data.data.id).stock_value, 270);
+  });
+
+  it('rejects stock transfers that would make a warehouse negative', async () => {
+    const wh = await req('POST', '/warehouses', { name: 'Audit Transfer WH', code: 'ATW' });
+    const prod = await req('POST', '/products', {
+      name: 'Audit Transfer Guard Item', sku: 'ATG-1', selling_price: 10, purchase_price: 5, opening_stock: 5,
+    });
+    const transfer = await req('POST', '/stock/transfers', {
+      from_warehouse_id: 1, to_warehouse_id: wh.data.data.id,
+      items: [{ product_id: prod.data.data.id, quantity: 10 }],
+    });
+    assert.strictEqual(transfer.status, 400);
+    assert.strictEqual(transfer.data.code, 'ERR_INSUFFICIENT_STOCK');
+    assert.strictEqual((await req('GET', `/products/${prod.data.data.id}`)).data.data.current_stock, 5);
+  });
+
+  it('reverses COGS in profit-loss when a sale is fully returned', async () => {
+    const prod = await req('POST', '/products', {
+      name: 'Audit PnL Return Item', sku: 'APR-1', purchase_price: 60, selling_price: 100, opening_stock: 2,
+    });
+    await req('POST', '/sales', {
+      invoice_type: 'sale', status: 'completed', invoice_date: '2026-11-11',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 100 }],
+    });
+    await req('POST', '/sales', {
+      invoice_type: 'sale_return', status: 'completed', invoice_date: '2026-11-11',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 100 }],
+    });
+    const pl = await req('GET', '/reports/profit-loss?from_date=2026-11-11&to_date=2026-11-11');
+    assert.strictEqual(pl.data.data.netSales, 0);
+    assert.strictEqual(pl.data.data.cogs, 0);
+    assert.strictEqual(pl.data.data.grossProfit, 0);
+  });
+
+  it('restores product cost when a purchase is cancelled', async () => {
+    const prod = await req('POST', '/products', {
+      name: 'Audit Cancel Cost Item', sku: 'ACCI-1', purchase_price: 40, selling_price: 70,
+    });
+    const bill = await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: prod.data.data.name, quantity: 1, unit_price: 55 }],
+    });
+    assert.strictEqual((await req('GET', `/products/${prod.data.data.id}`)).data.data.purchase_price, 55);
+    await req('POST', `/purchases/${bill.data.data.id}/cancel`);
+    const after = await req('GET', `/products/${prod.data.data.id}`);
+    assert.strictEqual(after.data.data.purchase_price, 40);
+    assert.strictEqual(after.data.data.current_stock, 0);
+  });
+
+
+  it('cancels sale and purchase returns back to their prior stock and party balances', async () => {
+    const cid = (await req('POST', '/customers', { name: 'Audit Cancel Sale Return Cust' })).data.data.id;
+    const saleProd = await req('POST', '/products', {
+      name: 'Audit Cancel Sale Return Item', sku: 'ACSR-1', selling_price: 100, purchase_price: 40,
+    });
+    const sr = await req('POST', '/sales', {
+      invoice_type: 'sale_return', customer_id: cid, status: 'completed',
+      items: [{ product_id: saleProd.data.data.id, product_name: saleProd.data.data.name, quantity: 1, unit_price: 100 }],
+    });
+    assert.strictEqual((await req('GET', `/products/${saleProd.data.data.id}`)).data.data.current_stock, 1);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, -100);
+    await req('POST', `/sales/${sr.data.data.id}/cancel`);
+    assert.strictEqual((await req('GET', `/products/${saleProd.data.data.id}`)).data.data.current_stock, 0);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 0);
+
+    const sid = (await req('POST', '/suppliers', { name: 'Audit Cancel Purchase Return Supp' })).data.data.id;
+    const purchaseProd = await req('POST', '/products', {
+      name: 'Audit Cancel Purchase Return Item', sku: 'ACPR-1', purchase_price: 50, selling_price: 80, opening_stock: 2,
+    });
+    const pr = await req('POST', '/purchases', {
+      bill_type: 'purchase_return', supplier_id: sid, status: 'completed',
+      items: [{ product_id: purchaseProd.data.data.id, product_name: purchaseProd.data.data.name, quantity: 1, unit_price: 50 }],
+    });
+    assert.strictEqual((await req('GET', `/products/${purchaseProd.data.data.id}`)).data.data.current_stock, 1);
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, -50);
+    await req('POST', `/purchases/${pr.data.data.id}/cancel`);
+    assert.strictEqual((await req('GET', `/products/${purchaseProd.data.data.id}`)).data.data.current_stock, 2);
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 0);
+  });
+
+  it('stores opening balance signs consistently with ledgers', async () => {
+    const c = await req('POST', '/customers', { name: 'Audit Opening Credit Cust', opening_balance: 100, balance_type: 'credit' });
+    assert.strictEqual(c.data.data.current_balance, -100);
+    assert.strictEqual((await req('GET', `/customers/${c.data.data.id}/ledger`)).data.data.closing_balance, -100);
+
+    const s = await req('POST', '/suppliers', { name: 'Audit Opening Debit Supp', opening_balance: 100, balance_type: 'debit' });
+    assert.strictEqual(s.data.data.current_balance, -100);
+    assert.strictEqual((await req('GET', `/suppliers/${s.data.data.id}/ledger`)).data.data.closing_balance, -100);
+  });
+
 });

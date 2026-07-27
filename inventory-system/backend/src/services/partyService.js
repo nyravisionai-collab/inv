@@ -31,6 +31,18 @@ function updateCustomerBalance(customerId) {
   `).get(customerId);
   balance -= Number(payments.total);
 
+  // Refunds paid to a customer against sale returns are already represented in
+  // sale_return.paid_amount. Only unallocated customer payment_out rows affect
+  // the running balance directly.
+  const refunds = db.prepare(`
+    SELECT COALESCE(SUM(p.amount - COALESCE(
+      (SELECT SUM(a.amount) FROM payment_allocations a WHERE a.payment_id = p.id), 0
+    )), 0) as total
+    FROM payments p
+    WHERE p.party_type = 'customer' AND p.party_id = ? AND p.payment_type = 'payment_out'
+  `).get(customerId);
+  balance += Number(refunds.total);
+
   db.prepare("UPDATE customers SET current_balance = ?, updated_at = ? WHERE id = ?").run(round2(balance), now(), customerId);
   return round2(balance);
 }
@@ -63,6 +75,18 @@ function updateSupplierBalance(supplierId) {
     WHERE p.party_type = 'supplier' AND p.party_id = ? AND p.payment_type = 'payment_out'
   `).get(supplierId);
   balance -= Number(payments.total);
+
+  // Refunds received from suppliers against purchase returns are already in
+  // purchase_return.paid_amount. Only unallocated supplier payment_in rows move
+  // the supplier account directly.
+  const refunds = db.prepare(`
+    SELECT COALESCE(SUM(p.amount - COALESCE(
+      (SELECT SUM(a.amount) FROM payment_allocations a WHERE a.payment_id = p.id), 0
+    )), 0) as total
+    FROM payments p
+    WHERE p.party_type = 'supplier' AND p.party_id = ? AND p.payment_type = 'payment_in'
+  `).get(supplierId);
+  balance += Number(refunds.total);
 
   db.prepare("UPDATE suppliers SET current_balance = ?, updated_at = ? WHERE id = ?").run(round2(balance), now(), supplierId);
   return round2(balance);

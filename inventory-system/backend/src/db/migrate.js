@@ -9,6 +9,15 @@ const db = require('./database');
 const ADDITIVE_COLUMNS = [
   ['company_settings', 'allow_negative_stock', 'INTEGER DEFAULT 0'],
   ['sale_items', 'cost_price', 'REAL DEFAULT 0'],
+  ['sale_items', 'invoice_discount_amount', 'REAL DEFAULT 0'],
+  ['sale_items', 'tax_type', "TEXT DEFAULT 'exclusive'"],
+  ['sale_items', 'taxable_amount', 'REAL DEFAULT 0'],
+  ['purchase_items', 'invoice_discount_amount', 'REAL DEFAULT 0'],
+  ['purchase_items', 'tax_type', "TEXT DEFAULT 'exclusive'"],
+  ['purchase_items', 'taxable_amount', 'REAL DEFAULT 0'],
+  ['purchase_items', 'prev_purchase_price', 'REAL'],
+  ['purchase_items', 'prev_selling_price', 'REAL'],
+  ['purchase_items', 'prev_mrp', 'REAL'],
 ];
 
 function columnExists(table, column) {
@@ -78,6 +87,116 @@ function backfillCostPrice() {
     `);
   } catch (err) {
     console.warn(`  ! cost_price backfill skipped: ${err.message}`);
+  }
+}
+
+/** Backfill persisted tax mode/taxable values for line items. */
+function backfillLineTaxColumns() {
+  try {
+    if (columnExists('sale_items', 'taxable_amount')) {
+      db.exec(`
+        UPDATE sale_items
+        SET tax_type = COALESCE(
+              NULLIF(tax_type, ''),
+              (SELECT p.tax_type FROM products p WHERE p.id = sale_items.product_id),
+              'exclusive'
+            ),
+            taxable_amount = ROUND(COALESCE(total, 0) - COALESCE(tax_amount, 0), 2),
+            invoice_discount_amount = COALESCE(invoice_discount_amount, 0)
+        WHERE taxable_amount IS NULL OR taxable_amount = 0 OR tax_type IS NULL
+      `);
+    }
+    if (columnExists('purchase_items', 'taxable_amount')) {
+      db.exec(`
+        UPDATE purchase_items
+        SET tax_type = COALESCE(
+              NULLIF(tax_type, ''),
+              (SELECT p.tax_type FROM products p WHERE p.id = purchase_items.product_id),
+              'exclusive'
+            ),
+            taxable_amount = ROUND(COALESCE(total, 0) - COALESCE(tax_amount, 0), 2),
+            invoice_discount_amount = COALESCE(invoice_discount_amount, 0)
+        WHERE taxable_amount IS NULL OR taxable_amount = 0 OR tax_type IS NULL
+      `);
+    }
+  } catch (err) {
+    console.warn(`  ! line tax backfill skipped: ${err.message}`);
+  }
+}
+
+/** Fix historical return payments that were stored with the normal bill direction. */
+function backfillReturnPaymentDirections() {
+  try {
+    db.exec(`
+      UPDATE payments
+      SET payment_type = 'payment_out'
+      WHERE payment_type = 'payment_in'
+        AND sale_id IN (SELECT id FROM sales WHERE invoice_type = 'sale_return')
+    `);
+    db.exec(`
+      UPDATE payments
+      SET payment_type = 'payment_in'
+      WHERE payment_type = 'payment_out'
+        AND purchase_id IN (SELECT id FROM purchases WHERE bill_type = 'purchase_return')
+    `);
+  } catch (err) {
+    console.warn(`  ! return payment direction backfill skipped: ${err.message}`);
+  }
+}
+
+/** Assign old NULL cash payments to the cash account so deletes/cash-book can reverse them. */
+function backfillPaymentBankAccounts() {
+  try {
+    const cash = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get()
+      || db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' LIMIT 1").get();
+    if (!cash) return;
+    db.prepare(`
+      UPDATE payments
+      SET bank_account_id = ?
+      WHERE bank_account_id IS NULL AND COALESCE(payment_mode, 'cash') IN ('cash','upi','card','other')
+    `).run(cash.id);
+  } catch (err) {
+    console.warn(`  ! payment bank backfill skipped: ${err.message}`);
+  }
+}
+
+/** Recompute bank balances from the transaction tables after direction/account fixes. */
+function recomputeBankBalances() {
+  try {
+    const accounts = db.prepare('SELECT id, COALESCE(opening_balance, 0) as opening FROM bank_accounts').all();
+    for (const acc of accounts) {
+      const payments = db.prepare(`
+        SELECT
+          COALESCE(SUM(CASE WHEN payment_type = 'payment_in' THEN amount ELSE 0 END), 0) as debit,
+          COALESCE(SUM(CASE WHEN payment_type = 'payment_out' THEN amount ELSE 0 END), 0) as credit
+        FROM payments WHERE bank_account_id = ?
+      `).get(acc.id);
+      const expenses = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE bank_account_id = ?').get(acc.id);
+      const incomes = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE bank_account_id = ?').get(acc.id);
+      const journals = db.prepare(`
+        SELECT COALESCE(SUM(debit), 0) as debit, COALESCE(SUM(credit), 0) as credit
+        FROM journal_entry_lines WHERE bank_account_id = ?
+      `).get(acc.id);
+      const balance = Number(acc.opening)
+        + Number(payments.debit) - Number(payments.credit)
+        + Number(incomes.total) - Number(expenses.total)
+        - Number(journals.debit) + Number(journals.credit);
+      db.prepare("UPDATE bank_accounts SET current_balance = ROUND(?, 2), updated_at = datetime('now','localtime') WHERE id = ?")
+        .run(balance, acc.id);
+    }
+  } catch (err) {
+    console.warn(`  ! bank balance recompute skipped: ${err.message}`);
+  }
+}
+
+/** Refresh party balances unconditionally so opening-balance signs and returns are consistent. */
+function recomputePartyBalances() {
+  try {
+    const partyService = require('../services/partyService');
+    for (const c of db.prepare('SELECT id FROM customers').all()) partyService.updateCustomerBalance(c.id);
+    for (const s of db.prepare('SELECT id FROM suppliers').all()) partyService.updateSupplierBalance(s.id);
+  } catch (err) {
+    console.warn(`  ! party balance recompute skipped: ${err.message}`);
   }
 }
 
@@ -156,8 +275,13 @@ async function migrate() {
       // ALTER TABLE on an already-correct schema is a harmless no-op.
       applyAdditiveColumns();
       backfillCostPrice();
+      backfillLineTaxColumns();
       backfillWarehouseStock();
+      backfillReturnPaymentDirections();
       backfillPaymentAllocations();
+      backfillPaymentBankAccounts();
+      recomputeBankBalances();
+      recomputePartyBalances();
     } catch (err) {
       try {
         db.exec('ROLLBACK');

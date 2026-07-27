@@ -13,16 +13,19 @@ function profitLoss(req, res) {
     `).get(from, to);
 
     const saleReturns = db.prepare(`
-      SELECT COALESCE(SUM(grand_total),0) as total
+      SELECT COALESCE(SUM(grand_total),0) as total, COALESCE(SUM(tax_amount),0) as tax
       FROM sales WHERE invoice_type='sale_return' AND status='completed' AND invoice_date BETWEEN ? AND ?
     `).get(from, to);
 
     const cogs = db.prepare(`
-      SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)),0) as total
+      SELECT COALESCE(SUM(
+        CASE WHEN s.invoice_type = 'sale_return' THEN -1 ELSE 1 END
+        * si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)
+      ),0) as total
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
       LEFT JOIN products p ON p.id = si.product_id
-      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
+      WHERE s.invoice_type IN ('sale','pos','sale_return') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
     `).get(from, to);
 
     const otherIncome = db.prepare(`
@@ -50,7 +53,7 @@ function profitLoss(req, res) {
       expenses,
       totalExpenses,
       netProfit,
-      taxCollected: sales.tax,
+      taxCollected: round2(sales.tax - saleReturns.tax),
     });
   } catch (err) {
     return error(res, err.message, 500);
@@ -66,26 +69,32 @@ function balanceSheet(req, res) {
     `).all();
 
     const stockValue = db.prepare(`
-      SELECT COALESCE(SUM(current_stock * purchase_price),0) as total FROM products WHERE is_active=1 AND is_service=0
+      SELECT COALESCE(SUM(
+        COALESCE((SELECT SUM(pb.quantity * pb.purchase_price) FROM product_batches pb WHERE pb.product_id = products.id), 0)
+        + MAX(COALESCE(current_stock, 0) - COALESCE((SELECT SUM(pb.quantity) FROM product_batches pb WHERE pb.product_id = products.id), 0), 0) * COALESCE(purchase_price, 0)
+      ),0) as total FROM products WHERE is_active=1 AND is_service=0
     `).get().total;
 
     const receivables = db.prepare(`
-      SELECT COALESCE(SUM(balance_amount),0) as total FROM sales
-      WHERE invoice_type IN ('sale','pos') AND status='completed' AND balance_amount > 0 AND invoice_date <= ?
-    `).get(asOf).total;
+      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END),0) as total
+      FROM customers WHERE is_active = 1
+    `).get().total;
 
     const payables = db.prepare(`
-      SELECT COALESCE(SUM(balance_amount),0) as total FROM purchases
-      WHERE bill_type='purchase' AND status='completed' AND balance_amount > 0 AND bill_date <= ?
-    `).get(asOf).total;
+      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END),0) as total
+      FROM suppliers WHERE is_active = 1
+    `).get().total;
 
     const totalAssets = cashAndBank.reduce((s, a) => s + a.current_balance, 0) + stockValue + receivables;
 
     // Simplified equity from P&L
     const pl = db.prepare(`
       SELECT
-        (SELECT COALESCE(SUM(grand_total),0) FROM sales WHERE invoice_type IN ('sale','pos') AND status='completed' AND invoice_date <= ?) -
-        (SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date <= ?) -
+        (SELECT COALESCE(SUM(CASE WHEN invoice_type = 'sale_return' THEN -grand_total ELSE grand_total END),0)
+         FROM sales WHERE invoice_type IN ('sale','pos','sale_return') AND status='completed' AND invoice_date <= ?) -
+        (SELECT COALESCE(SUM(CASE WHEN s.invoice_type = 'sale_return' THEN -1 ELSE 1 END * si.quantity * COALESCE(NULLIF(si.cost_price, 0), p.purchase_price, 0)),0)
+         FROM sale_items si JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id
+         WHERE s.invoice_type IN ('sale','pos','sale_return') AND s.status='completed' AND s.invoice_date <= ?) -
         (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date <= ?) +
         (SELECT COALESCE(SUM(amount),0) FROM incomes WHERE income_date <= ?)
       as retained
@@ -122,7 +131,8 @@ function gstReport(req, res) {
 
     const outward = db.prepare(`
       SELECT s.id, s.invoice_number, s.invoice_date, c.name as party, c.gstin, c.state as party_state,
-        s.subtotal, s.discount_amount, s.tax_amount, s.grand_total,
+        COALESCE((SELECT SUM(si.taxable_amount) FROM sale_items si WHERE si.sale_id = s.id), s.subtotal) as subtotal,
+        s.discount_amount, s.tax_amount, s.grand_total,
         CASE WHEN c.state IS NULL OR c.state = ? THEN 'intra' ELSE 'inter' END as supply_type
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
       WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
@@ -131,7 +141,8 @@ function gstReport(req, res) {
 
     const inward = db.prepare(`
       SELECT p.id, p.bill_number, p.bill_date, s.name as party, s.gstin, s.state as party_state,
-        p.subtotal, p.discount_amount, p.tax_amount, p.grand_total,
+        COALESCE((SELECT SUM(pi.taxable_amount) FROM purchase_items pi WHERE pi.purchase_id = p.id), p.subtotal) as subtotal,
+        p.discount_amount, p.tax_amount, p.grand_total,
         CASE WHEN s.state IS NULL OR s.state = ? THEN 'intra' ELSE 'inter' END as supply_type
       FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE p.bill_type='purchase' AND p.status='completed' AND p.bill_date BETWEEN ? AND ?
@@ -162,7 +173,7 @@ function gstReport(req, res) {
     // Rate-wise summary of outward supplies, derived from the line items.
     const rateWise = db.prepare(`
       SELECT si.tax_rate as rate,
-        COALESCE(SUM(si.quantity * si.unit_price - si.discount_amount), 0) as taxable_value,
+        COALESCE(SUM(si.taxable_amount), 0) as taxable_value,
         COALESCE(SUM(si.tax_amount), 0) as tax_amount,
         COUNT(DISTINCT s.id) as invoice_count
       FROM sale_items si
@@ -182,7 +193,7 @@ function gstReport(req, res) {
     const hsnWise = db.prepare(`
       SELECT COALESCE(NULLIF(si.hsn_code, ''), 'N/A') as hsn_code,
         COALESCE(SUM(si.quantity), 0) as quantity,
-        COALESCE(SUM(si.quantity * si.unit_price - si.discount_amount), 0) as taxable_value,
+        COALESCE(SUM(si.taxable_amount), 0) as taxable_value,
         COALESCE(SUM(si.tax_amount), 0) as tax_amount,
         COALESCE(SUM(si.total), 0) as total_value
       FROM sale_items si

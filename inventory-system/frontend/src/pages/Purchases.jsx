@@ -5,6 +5,7 @@ import { purchasesAPI, suppliersAPI, productsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
+import { calcLineTotal, calcInvoiceTotals } from '../utils/money';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
@@ -19,7 +20,7 @@ function today() { return new Date().toISOString().slice(0, 10); }
 
 const emptyLine = {
   product_id: '', product_name: '', quantity: 1, unit_price: 0, mrp: '', tax_rate: 0,
-  discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '',
+  tax_type: 'exclusive', discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '',
 };
 
 function PurchaseList() {
@@ -127,6 +128,7 @@ function PurchaseForm() {
     line.product_name = p.name;
     line.unit_price = p.purchase_price;
     line.tax_rate = p.tax_rate || 0;
+    line.tax_type = p.tax_type || 'exclusive';
     line.mrp = p.mrp || '';
     line.hsn_code = p.hsn_code;
     line.unit_id = p.unit_id;
@@ -157,15 +159,9 @@ function PurchaseForm() {
     return !!name && !item.product_id;
   };
 
-  const calcItemTotal = (item) => {
-    const sub = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    const disc = item.discount_type === 'percent' ? sub * (Number(item.discount_value) || 0) / 100 : (Number(item.discount_value) || 0);
-    const after = sub - disc;
-    const tax = after * (Number(item.tax_rate) || 0) / 100;
-    return after + tax;
-  };
+  const calcItemTotal = (item) => calcLineTotal(item).total;
 
-  const grand = items.reduce((s, i) => s + calcItemTotal(i), 0) - (Number(form.discount_value) || 0);
+  const grand = calcInvoiceTotals(items, form).grand;
 
   const save = async () => {
     const validItems = items.filter((i) => i.product_name && i.quantity > 0);

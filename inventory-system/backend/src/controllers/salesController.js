@@ -125,10 +125,11 @@ function createSaleCore(body, userId) {
     const v = validateLineItem(item, index);
     const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
     // Snapshot the cost at the time of sale so historical profit reports stay
-    // stable even when the product's purchase price changes later.
-    const costRow = item.product_id
-      ? db.prepare('SELECT purchase_price FROM products WHERE id = ?').get(item.product_id)
-      : null;
+    // stable even when the product's purchase price changes later. A selected
+    // batch has its own cost and must win over the latest product master cost.
+    const costRow = item.batch_id
+      ? db.prepare('SELECT purchase_price FROM product_batches WHERE id = ?').get(item.batch_id)
+      : (item.product_id ? db.prepare('SELECT purchase_price FROM products WHERE id = ?').get(item.product_id) : null);
     return {
       product_id: item.product_id || null,
       product_name: item.product_name || item.name,
@@ -140,8 +141,12 @@ function createSaleCore(body, userId) {
       cost_price: costRow ? Number(costRow.purchase_price) || 0 : 0,
       discount_type: v.discountType,
       discount_value: v.discountValue,
+      line_discount_amount: calc.discountAmount,
       discount_amount: calc.discountAmount,
+      invoice_discount_amount: 0,
       tax_rate: v.taxRate,
+      tax_type: v.taxType,
+      taxable_amount: calc.taxableAmount,
       tax_amount: calc.taxAmount,
       total: calc.total,
     };
@@ -159,6 +164,12 @@ function createSaleCore(body, userId) {
     money.shippingCharges, money.otherCharges, money.roundOff
   );
   const paid = money.paidAmount;
+  if (paid > totals.grandTotal + 0.009) {
+    const err = new Error('Paid amount cannot exceed the grand total');
+    err.status = 400;
+    err.code = 'ERR_PAYMENT_RANGE';
+    throw err;
+  }
   const balance = round2(totals.grandTotal - paid);
   let paymentStatus = 'unpaid';
   if (paid >= totals.grandTotal) paymentStatus = 'paid';
@@ -182,50 +193,57 @@ function createSaleCore(body, userId) {
 
   const saleId = result.lastInsertRowid;
   const insertItem = db.prepare(`
-    INSERT INTO sale_items (sale_id, product_id, product_name, hsn_code, batch_id, quantity, unit_id, unit_price, cost_price, discount_type, discount_value, discount_amount, tax_rate, tax_amount, total)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    INSERT INTO sale_items (
+      sale_id, product_id, product_name, hsn_code, batch_id, quantity, unit_id,
+      unit_price, cost_price, discount_type, discount_value, discount_amount,
+      invoice_discount_amount, tax_rate, tax_type, taxable_amount, tax_amount, total
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `);
 
   for (const item of processedItems) {
     insertItem.run(
       saleId, item.product_id, item.product_name, item.hsn_code, item.batch_id,
       item.quantity, item.unit_id, item.unit_price, item.cost_price, item.discount_type,
-      item.discount_value, item.discount_amount, item.tax_rate, item.tax_amount, item.total
+      item.discount_value, item.discount_amount, item.invoice_discount_amount,
+      item.tax_rate, item.tax_type, item.taxable_amount, item.tax_amount, item.total
     );
 
     if (status === 'completed' && item.product_id) {
       const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
       if (prod && !prod.is_service) {
         if (['sale', 'pos'].includes(invoiceType)) {
-          stockService.reduceStock(item.product_id, item.quantity, wh);
+          stockService.reduceStock(item.product_id, item.quantity, wh, item.batch_id);
         } else if (invoiceType === 'sale_return') {
-          stockService.increaseStock(item.product_id, item.quantity, wh);
+          stockService.increaseStock(item.product_id, item.quantity, wh, item.batch_id);
         }
       }
     }
   }
 
-  // Record payment if paid
+  // Record payment/refund if paid. A sale return is money going out to
+  // the customer, not a receipt from them.
   if (paid > 0 && status === 'completed') {
-    const payNum = numberService.nextNumber('payment_in');
+    const isReturn = invoiceType === 'sale_return';
+    const paymentType = isReturn ? 'payment_out' : 'payment_in';
+    const payNum = numberService.nextNumber(paymentType);
     const paymentMode = body.payment_mode || 'cash';
+    let baId = body.bank_account_id || null;
+    if (!baId) {
+      const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
+      baId = cashAcc?.id || null;
+    }
     const payRes = db.prepare(`
       INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, sale_id, created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).run(payNum, 'payment_in', 'customer', body.customer_id || null, date, paid, paymentMode, body.bank_account_id || null, saleId, userId);
+    `).run(payNum, paymentType, 'customer', body.customer_id || null, date, paid, paymentMode, baId, saleId, userId);
 
-    // The amount is already on the invoice, so record it as settled against
-    // this invoice too. Without the allocation row the party balance would
-    // subtract it a second time as an unapplied advance.
+    // The amount is already on the document's paid_amount, so record the
+    // allocation without applying it a second time. This also lets payment
+    // deletion reverse the document exactly.
     db.prepare('INSERT INTO payment_allocations (payment_id, sale_id, amount) VALUES (?,?,?)')
       .run(payRes.lastInsertRowid, saleId, paid);
 
-    if (body.bank_account_id) {
-      partyService.updateBankBalance(body.bank_account_id, paid, 'credit');
-    } else {
-      const cashAcc = db.prepare("SELECT id FROM bank_accounts WHERE account_type = 'cash' AND is_active = 1 LIMIT 1").get();
-      if (cashAcc) partyService.updateBankBalance(cashAcc.id, paid, 'credit');
-    }
+    if (baId) partyService.updateBankBalance(baId, paid, isReturn ? 'debit' : 'credit');
   }
 
   if (body.customer_id) partyService.updateCustomerBalance(body.customer_id);
@@ -287,9 +305,9 @@ function cancel(req, res) {
         const prod = db.prepare('SELECT is_service FROM products WHERE id = ?').get(item.product_id);
         if (prod && prod.is_service) continue;
         if (['sale', 'pos'].includes(sale.invoice_type)) {
-          stockService.increaseStock(item.product_id, item.quantity, sale.warehouse_id);
+          stockService.increaseStock(item.product_id, item.quantity, sale.warehouse_id, item.batch_id);
         } else if (sale.invoice_type === 'sale_return') {
-          stockService.reduceStock(item.product_id, item.quantity, sale.warehouse_id);
+          stockService.reduceStock(item.product_id, item.quantity, sale.warehouse_id, item.batch_id);
         }
       }
     }
@@ -338,6 +356,7 @@ function convert(req, res) {
         discount_type: i.discount_type,
         discount_value: i.discount_value,
         tax_rate: i.tax_rate,
+        tax_type: i.tax_type,
       })),
       discount_type: sale.discount_type,
       discount_value: sale.discount_value,

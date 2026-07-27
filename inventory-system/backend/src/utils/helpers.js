@@ -53,6 +53,13 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function moneyError(message, code = 'ERR_VALIDATION') {
+  const err = new Error(message);
+  err.status = 400;
+  err.code = code;
+  return err;
+}
+
 /**
  * Calculate one invoice line.
  *
@@ -116,39 +123,131 @@ function calcLineTotal(qty, price, discountType, discountValue, taxRate, taxType
  * it must not be added again. Summing each line's `total` (rather than
  * re-deriving it) keeps both tax modes correct, and mixed-mode invoices too.
  */
+function invoiceDiscountBase(item) {
+  const taxType = item.tax_type || item.taxType || 'exclusive';
+  if (taxType === 'inclusive') return Math.max(0, Number(item.total || 0));
+  if (item.taxable_amount !== undefined) return Math.max(0, Number(item.taxable_amount || 0));
+  if (item.taxableAmount !== undefined) return Math.max(0, Number(item.taxableAmount || 0));
+  return Math.max(0, Number(item.total || 0) - Number(item.tax_amount || item.taxAmount || 0));
+}
+
+function allocateProportionally(amount, bases) {
+  const totalBase = bases.reduce((s, b) => s + Number(b || 0), 0);
+  const target = round2(amount);
+  if (target <= 0 || totalBase <= 0) return bases.map(() => 0);
+
+  const out = [];
+  let allocated = 0;
+  let lastPositive = -1;
+  bases.forEach((b, i) => { if (Number(b || 0) > 0) lastPositive = i; });
+
+  for (let i = 0; i < bases.length; i++) {
+    if (Number(bases[i] || 0) <= 0) {
+      out.push(0);
+      continue;
+    }
+    let share;
+    if (i === lastPositive) share = round2(target - allocated);
+    else share = round2(target * Number(bases[i]) / totalBase);
+    allocated = round2(allocated + share);
+    out.push(share);
+  }
+  return out;
+}
+
+/**
+ * Aggregate line results into invoice totals and allocate any bill-level
+ * discount back onto the lines.
+ *
+ * GST discounts reduce taxable value before tax. Older code subtracted the
+ * invoice discount after tax, which overstated GST and the grand total. This
+ * function therefore prorates a bill discount over each line's post line-level
+ * discount base, recomputes taxable/tax/line total, and stores the allocated
+ * slice in `invoice_discount_amount`.
+ */
 function calcInvoiceTotals(items, discountType, discountValue, shipping = 0, other = 0, roundOff = 0) {
   let gross = 0;
-  let taxAmount = 0;
-  let itemDiscount = 0;
-  let lineTotals = 0;
+  let lineDiscount = 0;
 
   for (const item of items) {
-    gross += Number(item.unit_price || 0) * Number(item.quantity || 0);
-    taxAmount += Number(item.tax_amount || 0);
-    itemDiscount += Number(item.discount_amount || 0);
-    lineTotals += Number(item.total || 0);
+    const qty = Number(item.quantity || 0);
+    const price = Number(item.unit_price || 0);
+    gross += qty * price;
+    const originalLineDiscount = item.line_discount_amount !== undefined
+      ? Number(item.line_discount_amount || 0)
+      : Number(item.discount_amount || 0);
+    item.line_discount_amount = round2(originalLineDiscount);
+    lineDiscount += item.line_discount_amount;
   }
 
   const subtotal = round2(gross);
-  taxAmount = round2(taxAmount);
-  itemDiscount = round2(itemDiscount);
-  lineTotals = round2(lineTotals);
+  lineDiscount = round2(lineDiscount);
 
+  const bases = items.map(invoiceDiscountBase);
+  const discountBase = round2(bases.reduce((s, b) => s + Number(b || 0), 0));
   let invoiceDiscount;
-  const afterItemDiscount = subtotal - itemDiscount;
   if (discountType === 'percent') {
-    invoiceDiscount = round2(afterItemDiscount * (Number(discountValue) || 0) / 100);
+    invoiceDiscount = round2(discountBase * (Number(discountValue) || 0) / 100);
   } else {
-    invoiceDiscount = Number(discountValue) || 0;
+    invoiceDiscount = round2(Number(discountValue) || 0);
   }
 
-  const discountAmount = round2(itemDiscount + invoiceDiscount);
+  if (invoiceDiscount > discountBase + 0.009) {
+    throw moneyError('Discount cannot exceed the invoice total', 'ERR_DISCOUNT_RANGE');
+  }
+
+  const allocations = allocateProportionally(invoiceDiscount, bases);
+
+  let taxAmount = 0;
+  let lineTotals = 0;
+  let allocatedInvoiceDiscount = 0;
+
+  items.forEach((item, index) => {
+    const taxType = item.tax_type || item.taxType || 'exclusive';
+    const rate = Number(item.tax_rate || item.taxRate || 0);
+    const alloc = round2(allocations[index] || 0);
+    allocatedInvoiceDiscount = round2(allocatedInvoiceDiscount + alloc);
+    item.invoice_discount_amount = alloc;
+    item.discount_amount = round2(Number(item.line_discount_amount || 0) + alloc);
+
+    let taxableAmount;
+    let lineTax;
+    let total;
+
+    if (taxType === 'inclusive' && rate > 0) {
+      const discountedGross = round2(Math.max(0, Number(item.total || 0) - alloc));
+      taxableAmount = round2(discountedGross / (1 + rate / 100));
+      lineTax = round2(discountedGross - taxableAmount);
+      total = discountedGross;
+    } else if (taxType === 'none' || rate === 0) {
+      taxableAmount = round2(Math.max(0, invoiceDiscountBase(item) - alloc));
+      lineTax = 0;
+      total = taxableAmount;
+    } else {
+      taxableAmount = round2(Math.max(0, invoiceDiscountBase(item) - alloc));
+      lineTax = round2(taxableAmount * rate / 100);
+      total = round2(taxableAmount + lineTax);
+    }
+
+    item.tax_type = taxType;
+    item.taxable_amount = taxableAmount;
+    item.tax_amount = lineTax;
+    item.total = total;
+
+    taxAmount = round2(taxAmount + lineTax);
+    lineTotals = round2(lineTotals + total);
+  });
+
+  const discountAmount = round2(lineDiscount + allocatedInvoiceDiscount);
   const grandTotal = round2(
-    lineTotals - invoiceDiscount
-    + Number(shipping || 0) + Number(other || 0) + Number(roundOff || 0)
+    lineTotals + Number(shipping || 0) + Number(other || 0) + Number(roundOff || 0)
   );
 
-  return { subtotal, discountAmount, taxAmount, grandTotal };
+  if (grandTotal < -0.009) {
+    throw moneyError('Grand total cannot be negative', 'ERR_TOTAL_NEGATIVE');
+  }
+
+  return { subtotal, discountAmount, taxAmount, grandTotal: Math.max(0, grandTotal) };
 }
 
 function paginate(query, params = {}, page = 1, limit = 20) {

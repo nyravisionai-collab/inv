@@ -259,15 +259,26 @@ function cashBook(req, res) {
     let balance = 0;
     if (bank_account_id) {
       const acc = db.prepare('SELECT opening_balance FROM bank_accounts WHERE id = ?').get(bank_account_id);
-      balance = acc?.opening_balance || 0;
+      const priorPayments = db.prepare(`
+        SELECT
+          COALESCE(SUM(CASE WHEN payment_type = 'payment_in' THEN amount ELSE 0 END), 0) as debit,
+          COALESCE(SUM(CASE WHEN payment_type = 'payment_out' THEN amount ELSE 0 END), 0) as credit
+        FROM payments WHERE bank_account_id = ? AND payment_date < ?
+      `).get(bank_account_id, from);
+      const priorExpenses = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE bank_account_id = ? AND expense_date < ?').get(bank_account_id, from);
+      const priorIncomes = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE bank_account_id = ? AND income_date < ?').get(bank_account_id, from);
+      balance = (acc?.opening_balance || 0)
+        + Number(priorPayments.debit) - Number(priorPayments.credit)
+        + Number(priorIncomes.total) - Number(priorExpenses.total);
     }
 
     const entries = all.map((e) => {
       balance += (e.debit || 0) - (e.credit || 0);
-      return { ...e, balance: Math.round(balance * 100) / 100 };
+      balance = Math.round(balance * 100) / 100;
+      return { ...e, balance };
     });
 
-    return success(res, { from, to, entries, closing_balance: balance });
+    return success(res, { from, to, entries, closing_balance: Math.round(balance * 100) / 100 });
   } catch (err) {
     return error(res, err.message, 500);
   }
