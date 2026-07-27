@@ -105,8 +105,20 @@ export default function Layout() {
         setShowSearch(false);
       }
     };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+        setShowSearch(false);
+        setShowNotifs(false);
+        setShowUserMenu(false);
+      }
+    };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, []);
 
   const handleSearch = (val) => {
@@ -164,7 +176,12 @@ export default function Layout() {
       <div className="main-content">
         <header className="header">
           <div className="header-left">
-            <button className="menu-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <button
+              className="menu-toggle"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? t('Close menu') : t('Open menu')}
+              aria-expanded={sidebarOpen}
+            >
               {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
             <div className="search-box" ref={searchRef} style={{ position: 'relative' }}>
@@ -214,37 +231,22 @@ export default function Layout() {
           </div>
           <div className="header-right">
             <select
+              className="header-select"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              style={{
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '4px 10px',
-                fontSize: '13px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                outline: 'none',
-                height: '36px',
-                marginRight: '4px'
-              }}
+              aria-label={t('Language')}
             >
               <option value="en">{t('English')}</option>
               <option value="gu">ગુજરાતી</option>
             </select>
-            <button className="btn-icon" onClick={toggleTheme} title="Toggle theme">
+            <button className="btn-icon" onClick={toggleTheme} title={t('Toggle theme')} aria-label={t('Toggle theme')}>
               {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
             <div style={{ position: 'relative' }}>
-              <button className="btn-icon" onClick={() => setShowNotifs(!showNotifs)}>
+              <button className="btn-icon" onClick={() => setShowNotifs(!showNotifs)} aria-label={t('Notifications')} aria-expanded={showNotifs}>
                 <Bell size={20} />
                 {notifs.unread > 0 && (
-                  <span style={{
-                    position: 'absolute', top: 2, right: 2, background: 'var(--error)',
-                    color: '#fff', fontSize: 10, width: 16, height: 16, borderRadius: '50%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
-                  }}>{notifs.unread > 9 ? '9+' : notifs.unread}</span>
+                  <span className="notification-dot">{notifs.unread > 9 ? '9+' : notifs.unread}</span>
                 )}
               </button>
               {showNotifs && (
@@ -265,11 +267,7 @@ export default function Layout() {
             </div>
             <div style={{ position: 'relative' }}>
               <button className="btn btn-sm btn-secondary" onClick={() => setShowUserMenu(!showUserMenu)} style={{ gap: 6 }}>
-                <div style={{
-                  width: 28, height: 28, borderRadius: '50%', background: 'var(--primary)',
-                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 600,
-                }}>{user?.full_name?.[0] || 'U'}</div>
+                <div className="user-avatar">{user?.full_name?.[0] || 'U'}</div>
                 <span className="hide-mobile">{user?.full_name?.split(' ')[0]}</span>
                 <ChevronDown size={14} />
               </button>
@@ -280,7 +278,7 @@ export default function Layout() {
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{user?.role}</span>
                   </div>
                   <div className="search-result-item" onClick={() => { setShowUserMenu(false); navigate('/settings'); }}>
-                    <Settings size={16} /> Settings
+                    <Settings size={16} /> {t('Settings')}
                   </div>
                 </div>
               )}

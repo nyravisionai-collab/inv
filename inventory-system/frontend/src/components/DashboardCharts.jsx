@@ -10,7 +10,18 @@ import {
  * dependency in the app, and the KPI cards above it are far more important on
  * a slow device. Splitting it keeps the initial bundle small.
  */
-export default function DashboardCharts({ salesChart = [], purchaseChart = [], formatMoney, t }) {
+export default function DashboardCharts({ salesChart = [], purchaseChart = [], formatMoney, theme = 'light', t }) {
+  const isDark = theme === 'dark';
+  const tooltipStyle = {
+    background: isDark ? '#1a1d27' : '#ffffff',
+    border: `1px solid ${isDark ? '#2d3348' : '#e5e7eb'}`,
+    borderRadius: 8,
+    color: isDark ? '#e8eaed' : '#1a1a2e',
+    boxShadow: isDark ? '0 10px 15px rgba(0,0,0,.5)' : '0 10px 15px rgba(0,0,0,.1)',
+  };
+  const tick = { fontSize: 11, fill: isDark ? '#9aa0a6' : '#6b7280' };
+  const grid = isDark ? '#2d3348' : '#e5e7eb';
+
   return (
     <>
       <div className="card">
@@ -25,10 +36,10 @@ export default function DashboardCharts({ salesChart = [], purchaseChart = [], f
                     <stop offset="95%" stopColor="#1976d2" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => v?.slice(5)} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => formatMoney(v)} />
+                <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                <XAxis dataKey="date" tick={tick} tickFormatter={(v) => v?.slice(5)} />
+                <YAxis tick={tick} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: tooltipStyle.color }} formatter={(v) => formatMoney(v)} />
                 <Area type="monotone" dataKey="total" stroke="#1976d2" fill="url(#salesGrad)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -42,10 +53,10 @@ export default function DashboardCharts({ salesChart = [], purchaseChart = [], f
           <div className="chart-container">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={purchaseChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => v?.slice(5)} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => formatMoney(v)} />
+                <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                <XAxis dataKey="date" tick={tick} tickFormatter={(v) => v?.slice(5)} />
+                <YAxis tick={tick} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: tooltipStyle.color }} formatter={(v) => formatMoney(v)} />
                 <Bar dataKey="total" fill="#ed6c02" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

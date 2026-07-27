@@ -61,11 +61,11 @@ function SalesList() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">{cfg.title}</h1>
-          <p className="page-subtitle">{pagination.total} records</p>
+          <h1 className="page-title">{t(cfg.title)}</h1>
+          <p className="page-subtitle">{pagination.total} {t('records')}</p>
         </div>
         <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>
-          <Plus size={18} /> {cfg.createLabel}
+          <Plus size={18} /> {t(cfg.createLabel)}
         </button>
       </div>
       <div className="card">
@@ -76,7 +76,7 @@ function SalesList() {
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState title="No records" action={<button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>{cfg.createLabel}</button>} />
+          <EmptyState title={t('No records')} action={<button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>{t(cfg.createLabel)}</button>} />
         ) : (
           <>
             <div className="table-wrap">
@@ -90,20 +90,20 @@ function SalesList() {
                 <tbody>
                   {items.map((s) => (
                     <tr key={s.id}>
-                      <td style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/sales/${s.id}`)}>{s.invoice_number}</td>
-                      <td>{s.invoice_date}</td>
-                      <td>
+                      <td data-label={t('Number')} style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/sales/${s.id}`)}>{s.invoice_number}</td>
+                      <td data-label={t('Date')}>{s.invoice_date}</td>
+                      <td data-label={t('Source')}>
                         <span className="badge badge-info">
                           {s.invoice_type === 'pos' ? t('POS') : t('Invoice')}
                         </span>
                       </td>
-                      <td>{s.customer_name || t('Walk-in Customer')}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(s.grand_total)}</td>
-                      <td>{formatMoney(s.paid_amount)}</td>
-                      <td>{formatMoney(s.balance_amount)}</td>
-                      <td><span className={`badge ${s.status === 'completed' ? 'badge-success' : s.status === 'cancelled' ? 'badge-error' : 'badge-warning'}`}>{s.status}</span></td>
-                      <td><span className={`badge ${s.payment_status === 'paid' ? 'badge-success' : s.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{s.payment_status}</span></td>
-                      <td>
+                      <td data-label={t('Customer')}>{s.customer_name || t('Walk-in Customer')}</td>
+                      <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(s.grand_total)}</td>
+                      <td data-label={t('Paid')}>{formatMoney(s.paid_amount)}</td>
+                      <td data-label={t('Balance')}>{formatMoney(s.balance_amount)}</td>
+                      <td data-label={t('Status')}><span className={`badge ${s.status === 'completed' ? 'badge-success' : s.status === 'cancelled' ? 'badge-error' : 'badge-warning'}`}>{t(s.status)}</span></td>
+                      <td data-label={t('Payment')}><span className={`badge ${s.payment_status === 'paid' ? 'badge-success' : s.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{t(s.payment_status)}</span></td>
+                      <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => navigate(`/sales/${s.id}`)} title="View"><Eye size={16} /></button>
                           <a className="btn-icon" href={salesAPI.pdf(s.id)} target="_blank" rel="noreferrer" title="PDF"><FileText size={16} /></a>
@@ -198,9 +198,20 @@ function SaleForm() {
     setItems(next);
   };
 
+  const addBlankItem = () => {
+    setItems((prev) => [...prev, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }]);
+  };
+
   const removeItem = (idx) => {
     if (items.length === 1) return;
     setItems(items.filter((_, i) => i !== idx));
+  };
+
+  const handleItemKeyDown = (e, idx) => {
+    if (e.key === 'Enter' && idx === items.length - 1) {
+      e.preventDefault();
+      addBlankItem();
+    }
   };
 
   const calcItemTotal = (item) => {
@@ -243,11 +254,11 @@ function SaleForm() {
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">{cfg.createLabel}</h1>
+          <h1 className="page-title">{t(cfg.createLabel)}</h1>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(basePath)}>{t('Cancel')}</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
         </div>
       </div>
 
@@ -315,19 +326,19 @@ function SaleForm() {
               {items.map((item, idx) => {
                 const c = calcItemTotal(item);
                 return (
-                  <tr key={idx}>
-                    <td>
+                  <tr key={idx} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
+                    <td data-label={t('Product')}>
                       <select className="form-control" value={item.product_id} onChange={(e) => updateItem(idx, 'product_id', e.target.value)} style={{ height: 34 }}>
                         <option value="">{t('Select product')}</option>
                         {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </td>
-                    <td><input className="form-control" type="number" min="0" step="any" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
-                    <td><input className="form-control" type="number" min="0" step="any" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
-                    <td><input className="form-control" type="number" min="0" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
-                    <td><input className="form-control" type="number" min="0" value={item.discount_value} onChange={(e) => updateItem(idx, 'discount_value', e.target.value)} /></td>
-                    <td style={{ fontWeight: 600 }}>{formatMoney(c.total)}</td>
-                    <td><button className="btn-icon" onClick={() => removeItem(idx)}><XCircle size={16} /></button></td>
+                    <td data-label={t('Qty')}><input className="form-control" type="number" min="0" step="any" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
+                    <td data-label={t('Price')}><input className="form-control" type="number" min="0" step="any" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
+                    <td data-label={t('Tax %')}><input className="form-control" type="number" min="0" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
+                    <td data-label={t('Discount')}><input className="form-control" type="number" min="0" value={item.discount_value} onChange={(e) => updateItem(idx, 'discount_value', e.target.value)} /></td>
+                    <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(c.total)}</td>
+                    <td data-label={t('Actions')}><button className="btn-icon" onClick={() => removeItem(idx)}><XCircle size={16} /></button></td>
                   </tr>
                 );
               })}
@@ -335,8 +346,8 @@ function SaleForm() {
           </table>
         </div>
         <div style={{ padding: 12 }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0, tax_type: 'exclusive', discount_value: 0, discount_type: 'amount' }])}>
-            + Add Row
+          <button className="btn btn-sm btn-secondary" onClick={addBlankItem}>
+            + {t('Add Row')}
           </button>
         </div>
       </div>
@@ -431,17 +442,23 @@ function SaleDetail() {
   if (!sale) return <div className="empty-state"><h3>{t('Sale not found')}</h3></div>;
 
   return (
-    <div>
-      <div className="page-header">
+    <div className="print-area">
+      <div className="page-header no-print">
         <div>
           <h1 className="page-title">{sale.invoice_number}</h1>
           <p className="page-subtitle">{sale.invoice_type} · {sale.invoice_date}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
           <a className="btn btn-secondary" href={salesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a>
           <button className="btn btn-success" onClick={sendWhatsApp}><MessageCircle size={18} /> WhatsApp</button>
-          <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> Print</button>
+          <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> {t('Print')}</button>
+        </div>
+      </div>
+      <div className="page-header print-only">
+        <div>
+          <h1 className="page-title">{sale.invoice_number}</h1>
+          <p className="page-subtitle">{sale.invoice_type} · {sale.invoice_date}</p>
         </div>
       </div>
 
@@ -476,13 +493,13 @@ function SaleDetail() {
             <tbody>
               {(sale.items || []).map((item, i) => (
                 <tr key={item.id}>
-                  <td>{i + 1}</td>
-                  <td style={{ fontWeight: 500 }}>{item.product_name}</td>
-                  <td>{item.hsn_code || '—'}</td>
-                  <td>{item.quantity}</td>
-                  <td>{formatMoney(item.unit_price)}</td>
-                  <td>{formatMoney(item.tax_amount)} ({item.tax_rate}%)</td>
-                  <td style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
+                  <td data-label="#">{i + 1}</td>
+                  <td data-label={t('Item')} style={{ fontWeight: 500 }}>{item.product_name}</td>
+                  <td data-label={t('HSN')}>{item.hsn_code || '—'}</td>
+                  <td data-label={t('Qty')}>{item.quantity}</td>
+                  <td data-label={t('Price')}>{formatMoney(item.unit_price)}</td>
+                  <td data-label={t('Tax')}>{formatMoney(item.tax_amount)} ({item.tax_rate}%)</td>
+                  <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -511,10 +528,10 @@ function SaleDetail() {
               <tbody>
                 {sale.payments.map((p) => (
                   <tr key={p.id}>
-                    <td>{p.payment_number}</td>
-                    <td>{p.payment_date}</td>
-                    <td>{p.payment_mode}</td>
-                    <td style={{ fontWeight: 600 }}>{formatMoney(p.amount)}</td>
+                    <td data-label={t('Number')}>{p.payment_number}</td>
+                    <td data-label={t('Date')}>{p.payment_date}</td>
+                    <td data-label={t('Mode')}>{t(p.payment_mode)}</td>
+                    <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(p.amount)}</td>
                   </tr>
                 ))}
               </tbody>

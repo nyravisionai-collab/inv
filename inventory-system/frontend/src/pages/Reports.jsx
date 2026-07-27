@@ -79,7 +79,7 @@ export default function Reports() {
                   <thead><tr><th>{t('Category')}</th><th>{t('Amount')}</th></tr></thead>
                   <tbody>
                     {data.expenses.map((e, i) => (
-                      <tr key={i}><td>{e.category}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
+                      <tr key={i}><td data-label={t('Category')}>{e.category}</td><td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -148,8 +148,8 @@ export default function Reports() {
                 <tbody>
                   {(data.outwardSupply || []).map((r, i) => (
                     <tr key={i}>
-                      <td>{r.invoice_number}</td><td>{r.invoice_date}</td><td>{r.party || '—'}</td>
-                      <td>{formatMoney(r.subtotal)}</td><td>{formatMoney(r.tax_amount)}</td><td style={{ fontWeight: 600 }}>{formatMoney(r.grand_total)}</td>
+                      <td data-label={t('Invoice')}>{r.invoice_number}</td><td data-label={t('Date')}>{r.invoice_date}</td><td data-label={t('Party')}>{r.party || '—'}</td>
+                      <td data-label={t('Taxable')}>{formatMoney(r.subtotal)}</td><td data-label={t('Tax')}>{formatMoney(r.tax_amount)}</td><td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(r.grand_total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -176,9 +176,9 @@ export default function Reports() {
                 <tbody>
                   {(data.rows || []).map((r, i) => (
                     <tr key={i}>
-                      <td>{r.date}</td><td>{r.invoices}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(r.total)}</td>
-                      <td>{formatMoney(r.tax)}</td><td>{formatMoney(r.paid)}</td>
+                      <td data-label={t('Date')}>{r.date}</td><td data-label={t('Invoices')}>{r.invoices}</td>
+                      <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(r.total)}</td>
+                      <td data-label={t('Tax')}>{formatMoney(r.tax)}</td><td data-label={t('Paid')}>{formatMoney(r.paid)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -204,10 +204,10 @@ export default function Reports() {
                 <tbody>
                   {(data.rows || []).map((r, i) => (
                     <tr key={i}>
-                      <td>{r.date}</td><td>{r.bill_number}</td><td>{r.supplier || '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(r.total)}</td>
-                      <td>{formatMoney(r.paid)}</td>
-                      <td><span className={`badge ${r.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{r.payment_status}</span></td>
+                      <td data-label={t('Date')}>{r.date}</td><td data-label={t('Bill')}>{r.bill_number}</td><td data-label={t('Supplier')}>{r.supplier || '—'}</td>
+                      <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(r.total)}</td>
+                      <td data-label={t('Paid')}>{formatMoney(r.paid)}</td>
+                      <td data-label={t('Status')}><span className={`badge ${r.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{t(r.payment_status)}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -232,7 +232,7 @@ export default function Reports() {
                   <thead><tr><th>{t('Category')}</th><th>{t('Count')}</th><th>{t('Total')}</th></tr></thead>
                   <tbody>
                     {(data.byCategory || []).map((e, i) => (
-                      <tr key={i}><td>{e.category}</td><td>{e.count}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
+                      <tr key={i}><td data-label={t('Category')}>{e.category}</td><td data-label={t('Count')}>{e.count}</td><td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(e.total)}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -245,7 +245,7 @@ export default function Reports() {
                   <thead><tr><th>{t('Date')}</th><th>{t('Category')}</th><th>{t('Amount')}</th></tr></thead>
                   <tbody>
                     {(data.rows || []).map((e) => (
-                      <tr key={e.id}><td>{e.expense_date}</td><td>{e.category}</td><td style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td></tr>
+                      <tr key={e.id}><td data-label={t('Date')}>{e.expense_date}</td><td data-label={t('Category')}>{e.category}</td><td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -266,13 +266,13 @@ export default function Reports() {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ fontWeight: 500 }}>{p.name}</td>
-                    <td>{p.sku || '—'}</td>
-                    <td>{p.category_name || '—'}</td>
-                    <td><span className={`badge ${p.quantity <= p.min_stock && p.min_stock > 0 ? 'badge-error' : 'badge-success'}`}>{p.quantity}</span></td>
-                    <td>{formatMoney(p.purchase_price)}</td>
-                    <td>{formatMoney(p.selling_price)}</td>
-                    <td style={{ fontWeight: 600 }}>{formatMoney(p.stock_value || p.quantity * p.purchase_price)}</td>
+                    <td data-label={t('Product')} style={{ fontWeight: 500 }}>{p.name}</td>
+                    <td data-label={t('SKU')}>{p.sku || '—'}</td>
+                    <td data-label={t('Category')}>{p.category_name || '—'}</td>
+                    <td data-label={t('Qty')}><span className={`badge ${p.quantity <= p.min_stock && p.min_stock > 0 ? 'badge-error' : 'badge-success'}`}>{p.quantity}</span></td>
+                    <td data-label={t('Purchase')}>{formatMoney(p.purchase_price)}</td>
+                    <td data-label={t('Selling')}>{formatMoney(p.selling_price)}</td>
+                    <td data-label={t('Value')} style={{ fontWeight: 600 }}>{formatMoney(p.stock_value || p.quantity * p.purchase_price)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -291,18 +291,18 @@ export default function Reports() {
               <thead>
                 <tr>
                   <th>{t('Name')}</th><th>{t('Phone')}</th>
-                  <th>{active === 'customers' ? 'Sales' : 'Purchases'}</th>
+                  <th>{t(active === 'customers' ? 'Sales' : 'Purchases')}</th>
                   <th>{t('Invoices')}</th><th>{t('Balance')}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td style={{ fontWeight: 500 }}>{r.name}</td>
-                    <td>{r.phone || '—'}</td>
-                    <td style={{ fontWeight: 600 }}>{formatMoney(r.total_sales || r.total_purchases)}</td>
-                    <td>{r.total_invoices || r.total_bills || 0}</td>
-                    <td style={{ fontWeight: 600, color: r.current_balance > 0 ? 'var(--error)' : 'inherit' }}>{formatMoney(r.current_balance)}</td>
+                    <td data-label={t('Name')} style={{ fontWeight: 500 }}>{r.name}</td>
+                    <td data-label={t('Phone')}>{r.phone || '—'}</td>
+                    <td data-label={active === 'customers' ? t('Sales') : t('Purchases')} style={{ fontWeight: 600 }}>{formatMoney(r.total_sales || r.total_purchases)}</td>
+                    <td data-label={t('Invoices')}>{r.total_invoices || r.total_bills || 0}</td>
+                    <td data-label={t('Balance')} style={{ fontWeight: 600, color: r.current_balance > 0 ? 'var(--error)' : 'inherit' }}>{formatMoney(r.current_balance)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -337,7 +337,7 @@ export default function Reports() {
             <div key={r.id} className="stat-card" style={{ cursor: 'pointer' }} onClick={() => load(r.id)}>
               <div className={`stat-icon ${r.color}`}><r.icon size={24} /></div>
               <div>
-                <div className="stat-value" style={{ fontSize: 16 }}>{r.label}</div>
+                <div className="stat-value" style={{ fontSize: 16 }}>{t(r.label)}</div>
                 <div className="stat-sub">{t('Click to view')}</div>
               </div>
             </div>
@@ -346,10 +346,10 @@ export default function Reports() {
       ) : (
         <div>
           <button className="btn btn-secondary btn-sm" onClick={() => { setActive(null); setData(null); }} style={{ marginBottom: 16 }}>
-            ← All Reports
+            ← {t('All Reports')}
           </button>
           <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
-            {REPORTS.find((r) => r.id === active)?.label}
+            {t(REPORTS.find((r) => r.id === active)?.label || '')}
           </h2>
           {renderReport()}
         </div>

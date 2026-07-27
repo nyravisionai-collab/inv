@@ -54,10 +54,10 @@ export function Categories() {
               <tbody>
                 {items.map((c) => (
                   <tr key={c.id}>
-                    <td style={{ fontWeight: 500 }}>{c.name}</td>
-                    <td>{c.product_count}</td>
-                    <td>{c.parent_name || '—'}</td>
-                    <td>
+                    <td data-label={t('Name')} style={{ fontWeight: 500 }}>{c.name}</td>
+                    <td data-label={t('Products')}>{c.product_count}</td>
+                    <td data-label={t('Parent')}>{c.parent_name || '—'}</td>
+                    <td data-label={t('Actions')}>
                       <div className="table-actions">
                         <button className="btn-icon" onClick={() => { setName(c.name); setEditId(c.id); setModal(true); }}><Edit size={16} /></button>
                         <button className="btn-icon" onClick={() => remove(c.id)}><Trash2 size={16} /></button>
@@ -128,10 +128,10 @@ export function Brands() {
               <tbody>
                 {items.map((b) => (
                   <tr key={b.id}>
-                    <td style={{ fontWeight: 500 }}>{b.name}</td>
-                    <td>{b.description || '\u2014'}</td>
-                    <td>{b.product_count}</td>
-                    <td>
+                    <td data-label={t('Name')} style={{ fontWeight: 500 }}>{b.name}</td>
+                    <td data-label={t('Description')}>{b.description || '\u2014'}</td>
+                    <td data-label={t('Products')}>{b.product_count}</td>
+                    <td data-label={t('Actions')}>
                       <div className="table-actions">
                         <button className="btn-icon" onClick={() => { setForm({ name: b.name, description: b.description || '' }); setEditId(b.id); setModal(true); }}><Edit size={16} /></button>
                         <button className="btn-icon" onClick={() => remove(b.id)}><Trash2 size={16} /></button>
@@ -198,11 +198,11 @@ export function Warehouses() {
               <tbody>
                 {items.map((w) => (
                   <tr key={w.id}>
-                    <td style={{ fontWeight: 500 }}>{w.name}</td>
-                    <td>{w.code || '—'}</td>
-                    <td>{w.city || '—'}</td>
-                    <td>{w.is_default ? <span className="badge badge-success">{t('Default')}</span> : '—'}</td>
-                    <td>
+                    <td data-label={t('Name')} style={{ fontWeight: 500 }}>{w.name}</td>
+                    <td data-label={t('Code')}>{w.code || '—'}</td>
+                    <td data-label={t('City')}>{w.city || '—'}</td>
+                    <td data-label={t('Default')}>{w.is_default ? <span className="badge badge-success">{t('Default')}</span> : '—'}</td>
+                    <td data-label={t('Actions')}>
                       <button className="btn-icon" onClick={() => { setForm({ name: w.name, code: w.code || '', address: w.address || '', city: w.city || '', is_default: !!w.is_default }); setEditId(w.id); setModal(true); }}><Edit size={16} /></button>
                     </td>
                   </tr>
@@ -253,10 +253,10 @@ export function LowStock() {
               <tbody>
                 {items.map((p) => (
                   <tr key={p.id}>
-                    <td style={{ fontWeight: 500 }}>{p.name}</td>
-                    <td><span className="badge badge-error">{p.current_stock}</span></td>
-                    <td>{p.min_stock}</td>
-                    <td>{p.reorder_level || p.min_stock}</td>
+                    <td data-label={t('Product')} style={{ fontWeight: 500 }}>{p.name}</td>
+                    <td data-label={t('Current Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
+                    <td data-label={t('Min Stock')}>{p.min_stock}</td>
+                    <td data-label={t('Reorder Level')}>{p.reorder_level || p.min_stock}</td>
                   </tr>
                 ))}
               </tbody>
@@ -315,15 +315,15 @@ export function StockTransfer() {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('From')}</th><th>To</th><th>{t('Status')}</th></tr></thead>
+              <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('From')}</th><th>{t('To')}</th><th>{t('Status')}</th></tr></thead>
               <tbody>
-                {transfers.map((t) => (
-                  <tr key={t.id}>
-                    <td style={{ fontWeight: 600 }}>{t.transfer_number}</td>
-                    <td>{t.transfer_date}</td>
-                    <td>{t.from_warehouse}</td>
-                    <td>{t.to_warehouse}</td>
-                    <td><span className="badge badge-success">{t.status}</span></td>
+                {transfers.map((trn) => (
+                  <tr key={trn.id}>
+                    <td data-label={t('Number')} style={{ fontWeight: 600 }}>{trn.transfer_number}</td>
+                    <td data-label={t('Date')}>{trn.transfer_date}</td>
+                    <td data-label={t('From')}>{trn.from_warehouse}</td>
+                    <td data-label={t('To')}>{trn.to_warehouse}</td>
+                    <td data-label={t('Status')}><span className="badge badge-success">{t(trn.status)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -421,10 +421,10 @@ export function StockAdjustment() {
               <tbody>
                 {adjustments.map((a) => (
                   <tr key={a.id}>
-                    <td style={{ fontWeight: 600 }}>{a.adjustment_number}</td>
-                    <td>{a.adjustment_date}</td>
-                    <td>{a.warehouse_name || '—'}</td>
-                    <td>{a.reason || '—'}</td>
+                    <td data-label={t('Number')} style={{ fontWeight: 600 }}>{a.adjustment_number}</td>
+                    <td data-label={t('Date')}>{a.adjustment_date}</td>
+                    <td data-label={t('Warehouse')}>{a.warehouse_name || '—'}</td>
+                    <td data-label={t('Reason')}>{a.reason || '—'}</td>
                   </tr>
                 ))}
               </tbody>

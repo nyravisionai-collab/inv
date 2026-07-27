@@ -102,7 +102,7 @@ export default function Settings() {
         </div>
         {tab !== 'backup' && tab !== 'appearance' && (
           <button className="btn btn-primary" onClick={save} disabled={saving || !isAdmin}>
-            <Save size={18} /> {saving ? 'Saving...' : 'Save Changes'}
+            <Save size={18} /> {saving ? t('Saving...') : t('Save Changes')}
           </button>
         )}
       </div>
@@ -230,9 +230,9 @@ export default function Settings() {
               <table>
                 <thead><tr><th>{t('Name')}</th><th>{t('Rate')}</th><th>{t('CGST')}</th><th>{t('SGST')}</th><th>{t('IGST')}</th></tr></thead>
                 <tbody>
-                  {taxRates.map((t) => (
-                    <tr key={t.id}>
-                      <td>{t.name}</td><td>{t.rate}%</td><td>{t.cgst}%</td><td>{t.sgst}%</td><td>{t.igst}%</td>
+                  {taxRates.map((rate) => (
+                    <tr key={rate.id}>
+                      <td data-label={t('Name')}>{rate.name}</td><td data-label={t('Rate')}>{rate.rate}%</td><td data-label={t('CGST')}>{rate.cgst}%</td><td data-label={t('SGST')}>{rate.sgst}%</td><td data-label={t('IGST')}>{rate.igst}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -249,10 +249,10 @@ export default function Settings() {
               <label className="form-label">{t('Theme')}</label>
               <div style={{ display: 'flex', gap: 12 }}>
                 <button className={`btn ${theme === 'light' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => theme !== 'light' && toggleTheme()}>
-                  Light Mode
+                  {t('Light Mode')}
                 </button>
                 <button className={`btn ${theme === 'dark' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => theme !== 'dark' && toggleTheme()}>
-                  Dark Mode
+                  {t('Dark Mode')}
                 </button>
               </div>
             </div>
@@ -307,9 +307,9 @@ export default function Settings() {
                   <tbody>
                     {backups.map((b) => (
                       <tr key={b.name}>
-                        <td style={{ fontWeight: 500 }}>{b.name}</td>
-                        <td>{(b.size / 1024).toFixed(1)} KB</td>
-                        <td>{new Date(b.created_at).toLocaleString()}</td>
+                        <td data-label={t('File')} style={{ fontWeight: 500 }}>{b.name}</td>
+                        <td data-label={t('Size')}>{(b.size / 1024).toFixed(1)} KB</td>
+                        <td data-label={t('Created')}>{new Date(b.created_at).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>

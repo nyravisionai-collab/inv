@@ -15,7 +15,7 @@ const COLORS = ['#1976d2', '#2e7d32', '#ed6c02', '#9c27b0', '#d32f2f', '#00796b'
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const { formatMoney, settings, t } = useAuth();
+  const { formatMoney, settings, theme, t } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -75,6 +75,7 @@ export default function Dashboard() {
             salesChart={data.salesChart || []}
             purchaseChart={data.purchaseChart || []}
             formatMoney={formatMoney}
+            theme={theme}
             t={t}
           />
         </Suspense>
@@ -97,7 +98,7 @@ export default function Dashboard() {
                 )}
                 {(data.topProducts || []).map((p, i) => (
                   <tr key={p.id}>
-                    <td>
+                    <td data-label={t('Product')}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{
                           width: 28, height: 28, borderRadius: 6, background: COLORS[i % COLORS.length],
@@ -107,8 +108,8 @@ export default function Dashboard() {
                         {p.name}
                       </div>
                     </td>
-                    <td>{p.qty_sold}</td>
-                    <td>{formatMoney(p.revenue)}</td>
+                    <td data-label={t('Qty Sold')}>{p.qty_sold}</td>
+                    <td data-label={t('Revenue')}>{formatMoney(p.revenue)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -132,9 +133,9 @@ export default function Dashboard() {
                 )}
                 {(data.lowStock || []).slice(0, 8).map((p) => (
                   <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td><span className="badge badge-error">{p.current_stock}</span></td>
-                    <td>{p.min_stock}</td>
+                    <td data-label={t('Product')}>{p.name}</td>
+                    <td data-label={t('Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
+                    <td data-label={t('Min')}>{p.min_stock}</td>
                   </tr>
                 ))}
               </tbody>
@@ -156,20 +157,20 @@ export default function Dashboard() {
               {(data.recentTransactions || []).length === 0 && (
                 <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No transactions yet')}</td></tr>
               )}
-              {(data.recentTransactions || []).map((t, i) => (
-                <tr key={i} style={{ cursor: 'pointer' }} onClick={() => navigate(t.type === 'sale' ? `/sales/${t.id}` : `/purchases/${t.id}`)}>
-                  <td>
-                    <span className={`badge ${t.type === 'sale' ? 'badge-success' : 'badge-warning'}`}>
-                      {t.type}
+              {(data.recentTransactions || []).map((txn, i) => (
+                <tr key={i} style={{ cursor: 'pointer' }} onClick={() => navigate(txn.type === 'sale' ? `/sales/${txn.id}` : `/purchases/${txn.id}`)}>
+                  <td data-label={t('Type')}>
+                    <span className={`badge ${txn.type === 'sale' ? 'badge-success' : 'badge-warning'}`}>
+                      {t(txn.type === 'sale' ? 'Sale' : 'Purchase')}
                     </span>
                   </td>
-                  <td style={{ fontWeight: 500 }}>{t.number}</td>
-                  <td>{t.party || '—'}</td>
-                  <td>{t.date}</td>
-                  <td style={{ fontWeight: 600 }}>{formatMoney(t.amount)}</td>
-                  <td>
-                    <span className={`badge ${t.status === 'paid' ? 'badge-success' : t.status === 'partial' ? 'badge-warning' : 'badge-error'}`}>
-                      {t.status}
+                  <td data-label={t('Number')} style={{ fontWeight: 500 }}>{txn.number}</td>
+                  <td data-label={t('Party')}>{txn.party || '—'}</td>
+                  <td data-label={t('Date')}>{txn.date}</td>
+                  <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(txn.amount)}</td>
+                  <td data-label={t('Status')}>
+                    <span className={`badge ${txn.status === 'paid' ? 'badge-success' : txn.status === 'partial' ? 'badge-warning' : 'badge-error'}`}>
+                      {t(txn.status)}
                     </span>
                   </td>
                 </tr>

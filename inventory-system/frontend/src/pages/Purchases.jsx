@@ -55,8 +55,8 @@ function PurchaseList() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">{cfg.title}</h1><p className="page-subtitle">{pagination.total} records</p></div>
-        <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}><Plus size={18} /> {cfg.createLabel}</button>
+        <div><h1 className="page-title">{t(cfg.title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
+        <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}><Plus size={18} /> {t(cfg.createLabel)}</button>
       </div>
       <div className="card">
         <div className="card-header">
@@ -65,7 +65,7 @@ function PurchaseList() {
           </div>
         </div>
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState title="No records" action={<button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>{cfg.createLabel}</button>} />
+          <EmptyState title={t('No records')} action={<button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>{t(cfg.createLabel)}</button>} />
         ) : (
           <>
             <div className="table-wrap">
@@ -74,15 +74,15 @@ function PurchaseList() {
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
-                      <td style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/purchases/${p.id}`)}>{p.bill_number}</td>
-                      <td>{p.bill_date}</td>
-                      <td>{p.supplier_name || '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(p.grand_total)}</td>
-                      <td>{formatMoney(p.paid_amount)}</td>
-                      <td>{formatMoney(p.balance_amount)}</td>
-                      <td><span className={`badge ${p.status === 'completed' ? 'badge-success' : p.status === 'cancelled' ? 'badge-error' : 'badge-warning'}`}>{p.status}</span></td>
-                      <td><span className={`badge ${p.payment_status === 'paid' ? 'badge-success' : p.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{p.payment_status}</span></td>
-                      <td>
+                      <td data-label={t('Number')} style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/purchases/${p.id}`)}>{p.bill_number}</td>
+                      <td data-label={t('Date')}>{p.bill_date}</td>
+                      <td data-label={t('Supplier')}>{p.supplier_name || '—'}</td>
+                      <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(p.grand_total)}</td>
+                      <td data-label={t('Paid')}>{formatMoney(p.paid_amount)}</td>
+                      <td data-label={t('Balance')}>{formatMoney(p.balance_amount)}</td>
+                      <td data-label={t('Status')}><span className={`badge ${p.status === 'completed' ? 'badge-success' : p.status === 'cancelled' ? 'badge-error' : 'badge-warning'}`}>{t(p.status)}</span></td>
+                      <td data-label={t('Payment')}><span className={`badge ${p.payment_status === 'paid' ? 'badge-success' : p.payment_status === 'partial' ? 'badge-warning' : 'badge-error'}`}>{t(p.payment_status)}</span></td>
+                      <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => navigate(`/purchases/${p.id}`)}><Eye size={16} /></button>
                           {p.status !== 'cancelled' && <button className="btn-icon" onClick={() => cancel(p.id)}><XCircle size={16} /></button>}
@@ -159,6 +159,15 @@ function PurchaseForm() {
     return !!name && !item.product_id;
   };
 
+  const addBlankItem = () => setItems((prev) => [...prev, { ...emptyLine }]);
+
+  const handleItemKeyDown = (e, idx) => {
+    if (e.key === 'Enter' && idx === items.length - 1) {
+      e.preventDefault();
+      addBlankItem();
+    }
+  };
+
   const calcItemTotal = (item) => calcLineTotal(item).total;
 
   const grand = calcInvoiceTotals(items, form).grand;
@@ -184,10 +193,10 @@ function PurchaseForm() {
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">{cfg.createLabel}</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <h1 className="page-title">{t(cfg.createLabel)}</h1>
+        <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(basePath)}>{t('Cancel')}</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
         </div>
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
@@ -221,8 +230,8 @@ function PurchaseForm() {
             <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('MRP')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
             <tbody>
               {items.map((item, idx) => (
-                <tr key={idx}>
-                  <td>
+                <tr key={idx} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
+                  <td data-label={t('Product')}>
                     <input
                       className="form-control"
                       list="purchase-product-options"
@@ -235,20 +244,20 @@ function PurchaseForm() {
                       <div className="form-hint" style={{ color: 'var(--primary)' }}>{t('New product — will be added automatically')}</div>
                     )}
                   </td>
-                  <td><input className="form-control" type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
-                  <td><input className="form-control" type="number" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
-                  <td><input className="form-control" type="number" value={item.mrp} onChange={(e) => updateItem(idx, 'mrp', e.target.value)} placeholder={t('MRP')} /></td>
-                  <td><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
-                  <td><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
-                  <td style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
-                  <td><button className="btn-icon" onClick={() => items.length > 1 && setItems(items.filter((_, i) => i !== idx))}><XCircle size={16} /></button></td>
+                  <td data-label={t('Qty')}><input className="form-control" type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
+                  <td data-label={t('Price')}><input className="form-control" type="number" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
+                  <td data-label={t('MRP')}><input className="form-control" type="number" value={item.mrp} onChange={(e) => updateItem(idx, 'mrp', e.target.value)} placeholder={t('MRP')} /></td>
+                  <td data-label={t('Tax %')}><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
+                  <td data-label={t('Batch')}><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
+                  <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
+                  <td data-label={t('Actions')}><button className="btn-icon" onClick={() => items.length > 1 && setItems(items.filter((_, i) => i !== idx))}><XCircle size={16} /></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <div style={{ padding: 12 }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => setItems([...items, { ...emptyLine }])}>+ Add Row</button>
+          <button className="btn btn-sm btn-secondary" onClick={addBlankItem}>+ {t('Add Row')}</button>
         </div>
       </div>
       <div className="card">
@@ -308,9 +317,9 @@ function PurchaseDetail() {
             <tbody>
               {(data.items || []).map((item, i) => (
                 <tr key={item.id}>
-                  <td>{i + 1}</td><td>{item.product_name}</td><td>{item.quantity}</td>
-                  <td>{formatMoney(item.unit_price)}</td><td>{formatMoney(item.tax_amount)}</td>
-                  <td style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
+                  <td data-label="#">{i + 1}</td><td data-label={t('Item')}>{item.product_name}</td><td data-label={t('Qty')}>{item.quantity}</td>
+                  <td data-label={t('Price')}>{formatMoney(item.unit_price)}</td><td data-label={t('Tax')}>{formatMoney(item.tax_amount)}</td>
+                  <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
                 </tr>
               ))}
             </tbody>

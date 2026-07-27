@@ -15,15 +15,34 @@ export default function POS() {
   const [paymentMode, setPaymentMode] = useState('cash');
   const [paidAmount, setPaidAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [barcode, setBarcode] = useState('');
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const barcodeRef = useRef(null);
 
+  const loadProducts = async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const [productsRes, customersRes] = await Promise.all([
+        productsAPI.list({ limit: 100, is_active: '1' }),
+        customersAPI.list({ limit: 100 }),
+      ]);
+      setProducts(productsRes.data.data);
+      setCustomers(customersRes.data.data);
+    } catch {
+      setLoadError(true);
+      error(t('Failed to load products'));
+    } finally {
+      setLoading(false);
+      barcodeRef.current?.focus();
+    }
+  };
+
   useEffect(() => {
-    productsAPI.list({ limit: 100, is_active: '1' }).then((r) => setProducts(r.data.data)).catch(() => {});
-    customersAPI.list({ limit: 100 }).then((r) => setCustomers(r.data.data)).catch(() => {});
-    barcodeRef.current?.focus();
+    loadProducts();
   }, []);
 
   const addToCart = (product) => {
@@ -67,7 +86,7 @@ export default function POS() {
         addToCart(r.data.data);
         setBarcode('');
       } catch {
-        error('Product not found: ' + barcode);
+        error(`${t('Product not found')}: ${barcode}`);
         setBarcode('');
       }
     }
@@ -99,7 +118,7 @@ export default function POS() {
         payment_mode: paymentMode,
         status: 'completed',
       });
-      success(`Sale complete! ${res.data.data.invoice_number} — ${formatMoney(rounded)}`);
+      success(`${t('Sale complete')}! ${res.data.data.invoice_number} — ${formatMoney(rounded)}`);
       setCart([]);
       setPaidAmount('');
       setCustomerId('');
@@ -112,103 +131,111 @@ export default function POS() {
   };
 
   return (
-    <div style={{ margin: '-24px' }}>
+    <div className="pos-shell">
       <div className="pos-layout">
         <div className="pos-products">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <div className="search-box" style={{ flex: 1, maxWidth: 'none' }}>
+          <div className="pos-toolbar">
+            <div className="search-box">
               <Search size={18} />
               <input placeholder={t('Search products...')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <input
               ref={barcodeRef}
-              className="form-control"
-              style={{ width: 180 }}
+              className="form-control pos-barcode-input"
               placeholder={t('Scan barcode...')}
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               onKeyDown={handleBarcode}
             />
           </div>
-          <div className="pos-product-grid">
-            {filtered.map((p) => (
-              <div key={p.id} className="pos-product-card" onClick={() => addToCart(p)}>
-                {p.image ? (
-                  <img
-                    src={p.image}
-                    alt={p.name}
-                    loading="lazy"
-                    style={{ width: 48, height: 48, borderRadius: 10, margin: '0 auto 8px', display: 'block', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div style={{
-                    width: 48, height: 48, borderRadius: 10, margin: '0 auto 8px',
-                    background: 'linear-gradient(135deg, var(--primary-light), var(--primary))',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', fontWeight: 700, fontSize: 16,
-                  }}>{p.name[0]}</div>
-                )}
-                <div className="name">{p.name}</div>
-                <div className="price">{formatMoney(p.selling_price)}</div>
-                <div className="stock">Stock: {p.current_stock}</div>
+
+          {loading ? (
+            <div className="state-block"><div className="spinner" /></div>
+          ) : loadError ? (
+            <div className="state-block">
+              <ShoppingCart className="state-block-icon" />
+              <h3>{t('Failed to load products')}</h3>
+              <p>{t('Check connection and try again')}</p>
+              <div className="state-block-actions">
+                <button className="btn btn-primary" onClick={loadProducts}>{t('Try Again')}</button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="pos-empty-products">
+              <ShoppingCart size={40} style={{ opacity: 0.35, marginBottom: 8 }} />
+              <p>{t('No products found')}</p>
+            </div>
+          ) : (
+            <div className="pos-product-grid">
+              {filtered.map((p) => (
+                <button key={p.id} type="button" className="pos-product-card" onClick={() => addToCart(p)}>
+                  {p.image ? (
+                    <img src={p.image} alt={p.name} loading="lazy" className="pos-product-img" />
+                  ) : (
+                    <div className="pos-product-avatar">{p.name?.[0] || '?'}</div>
+                  )}
+                  <div className="name">{p.name}</div>
+                  <div className="price">{formatMoney(p.selling_price)}</div>
+                  <div className="stock">{t('Stock')}: {p.current_stock}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="pos-cart">
-          <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ShoppingCart size={20} /> Cart ({cart.length})</strong>
-              {cart.length > 0 && <button className="btn btn-sm btn-secondary" onClick={() => setCart([])}><Trash2 size={14} /> Clear</button>}
+          <div className="pos-cart-header">
+            <div className="pos-cart-title-row">
+              <strong className="pos-cart-title"><ShoppingCart size={20} /> {t('Cart')} ({cart.length})</strong>
+              {cart.length > 0 && <button className="btn btn-sm btn-secondary" onClick={() => setCart([])}><Trash2 size={14} /> {t('Clear')}</button>}
             </div>
-            <select className="form-control" value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ height: 36 }}>
+            <select className="form-control" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">{t('Walk-in Customer')}</option>
               {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+          <div className="pos-cart-items">
             {cart.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
-                <ShoppingCart size={40} style={{ opacity: 0.3, marginBottom: 8 }} />
+              <div className="state-block compact">
+                <ShoppingCart className="state-block-icon" />
                 <p>{t('Tap products to add')}</p>
               </div>
             )}
             {cart.map((item, idx) => (
-              <div key={idx} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.product_name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{formatMoney(item.unit_price)} × {item.quantity}</div>
+              <div key={idx} className="pos-cart-line">
+                <div>
+                  <div className="pos-cart-line-name">{item.product_name}</div>
+                  <div className="pos-cart-line-meta">{formatMoney(item.unit_price)} × {item.quantity}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={() => updateQty(idx, -1)}><Minus size={14} /></button>
-                  <span style={{ width: 28, textAlign: 'center', fontWeight: 600 }}>{item.quantity}</span>
-                  <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={() => updateQty(idx, 1)}><Plus size={14} /></button>
+                <div className="qty-stepper" aria-label={t('Qty')}>
+                  <button className="btn-icon" onClick={() => updateQty(idx, -1)} aria-label={t('Decrease quantity')}><Minus size={16} /></button>
+                  <span className="qty-value">{item.quantity}</span>
+                  <button className="btn-icon" onClick={() => updateQty(idx, 1)} aria-label={t('Increase quantity')}><Plus size={16} /></button>
                 </div>
-                <div style={{ fontWeight: 600, minWidth: 70, textAlign: 'right' }}>{formatMoney(calcLine(item))}</div>
-                <button className="btn-icon" style={{ width: 28, height: 28 }} onClick={() => removeFromCart(idx)}><X size={14} /></button>
+                <div className="pos-line-total">{formatMoney(calcLine(item))}</div>
+                <button className="btn-icon" onClick={() => removeFromCart(idx)} aria-label={t('Remove')}><X size={16} /></button>
               </div>
             ))}
           </div>
 
-          <div style={{ padding: 16, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 20, fontWeight: 700, marginBottom: 12 }}>
+          <div className="pos-cart-footer">
+            <div className="pos-total-row">
               <span>{t('Total')}</span>
               <span style={{ color: 'var(--primary)' }}>{formatMoney(rounded)}</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-              <select className="form-control" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} style={{ height: 36 }}>
+            <div className="pos-payment-grid">
+              <select className="form-control" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
                 <option value="cash">{t('Cash')}</option>
                 <option value="upi">{t('UPI')}</option>
                 <option value="card">{t('Card')}</option>
                 <option value="bank">{t('Bank')}</option>
               </select>
-              <input className="form-control" type="number" placeholder={`Paid (${rounded})`} value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)} style={{ height: 36 }} />
+              <input className="form-control" type="number" placeholder={`${t('Paid')} (${rounded})`} value={paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value)} />
             </div>
-            <button className="btn btn-primary btn-block" style={{ height: 48, fontSize: 16 }} onClick={checkout} disabled={saving || !cart.length}>
-              {saving ? 'Processing...' : `Charge ${formatMoney(rounded)}`}
+            <button className="btn btn-primary btn-block pos-charge-btn" onClick={checkout} disabled={saving || !cart.length}>
+              {saving ? t('Processing...') : `${t('Charge')} ${formatMoney(rounded)}`}
             </button>
           </div>
         </div>

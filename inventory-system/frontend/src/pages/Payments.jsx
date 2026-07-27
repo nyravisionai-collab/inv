@@ -82,8 +82,8 @@ export default function Payments() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">{title}</h1><p className="page-subtitle">{pagination.total} records</p></div>
-        <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Record Payment</button>
+        <div><h1 className="page-title">{t(title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
+        <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> {t('Record Payment')}</button>
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (
@@ -96,13 +96,13 @@ export default function Payments() {
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
-                      <td style={{ fontWeight: 600 }}>{p.payment_number}</td>
-                      <td>{p.payment_date}</td>
-                      <td>{p.party_name || '—'}</td>
-                      <td><span className="badge badge-info">{p.payment_mode}</span></td>
-                      <td style={{ fontWeight: 600 }}>{formatMoney(p.amount)}</td>
-                      <td>{p.notes || '—'}</td>
-                      <td><button className="btn-icon" onClick={() => remove(p.id)}><Trash2 size={16} /></button></td>
+                      <td data-label={t('Number')} style={{ fontWeight: 600 }}>{p.payment_number}</td>
+                      <td data-label={t('Date')}>{p.payment_date}</td>
+                      <td data-label={t('Party')}>{p.party_name || '—'}</td>
+                      <td data-label={t('Mode')}><span className="badge badge-info">{t(p.payment_mode)}</span></td>
+                      <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(p.amount)}</td>
+                      <td data-label={t('Notes')}>{p.notes || '—'}</td>
+                      <td data-label={t('Actions')}><button className="btn-icon" onClick={() => remove(p.id)}><Trash2 size={16} /></button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -113,11 +113,11 @@ export default function Payments() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title={`Record ${title}`}
-        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}
+      <Modal open={modal} onClose={() => setModal(false)} title={`${t('Record')} ${t(title)}`}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button></>}
       >
         <div className="form-group">
-          <label className="form-label">{isIn ? 'Customer' : 'Supplier'}</label>
+          <label className="form-label">{t(isIn ? 'Customer' : 'Supplier')}</label>
           <select className="form-control" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
             <option value="">{t('Select')}</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
