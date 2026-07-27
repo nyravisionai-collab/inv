@@ -19,9 +19,15 @@ function updateCustomerBalance(customerId) {
   `).get(customerId);
   balance -= Number(returns.total) - Number(returns.paid);
 
+  // Only the part of a payment that was *not* settled against an invoice is
+  // subtracted here — the settled part already shows up as `sales.paid` above,
+  // and counting it twice would push the party into fake credit.
   const payments = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total FROM payments
-    WHERE party_type = 'customer' AND party_id = ? AND payment_type = 'payment_in' AND sale_id IS NULL
+    SELECT COALESCE(SUM(p.amount - COALESCE(
+      (SELECT SUM(a.amount) FROM payment_allocations a WHERE a.payment_id = p.id), 0
+    )), 0) as total
+    FROM payments p
+    WHERE p.party_type = 'customer' AND p.party_id = ? AND p.payment_type = 'payment_in'
   `).get(customerId);
   balance -= Number(payments.total);
 
@@ -47,9 +53,14 @@ function updateSupplierBalance(supplierId) {
   `).get(supplierId);
   balance -= Number(returns.total) - Number(returns.paid);
 
+  // As above: subtract only the unsettled remainder so an allocated payment is
+  // not counted both here and in `purchases.paid`.
   const payments = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total FROM payments
-    WHERE party_type = 'supplier' AND party_id = ? AND payment_type = 'payment_out' AND purchase_id IS NULL
+    SELECT COALESCE(SUM(p.amount - COALESCE(
+      (SELECT SUM(a.amount) FROM payment_allocations a WHERE a.payment_id = p.id), 0
+    )), 0) as total
+    FROM payments p
+    WHERE p.party_type = 'supplier' AND p.party_id = ? AND p.payment_type = 'payment_out'
   `).get(supplierId);
   balance -= Number(payments.total);
 

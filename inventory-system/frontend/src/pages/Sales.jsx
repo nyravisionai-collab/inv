@@ -10,7 +10,9 @@ import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
 
 const TYPE_MAP = {
-  '/sales': { type: 'sale', title: 'Sale Invoices', createLabel: 'New Sale' },
+  // A POS bill is a sale, so the invoice list covers both and the counter
+  // sales are no longer invisible outside the POS screen.
+  '/sales': { type: 'sale,pos', title: 'Sale Invoices', createLabel: 'New Sale' },
   '/estimates': { type: 'estimate', title: 'Estimates / Quotations', createLabel: 'New Estimate' },
   '/sale-orders': { type: 'sale_order', title: 'Sale Orders', createLabel: 'New Sale Order' },
   '/sale-returns': { type: 'sale_return', title: 'Sale Returns', createLabel: 'New Credit Note' },
@@ -80,7 +82,7 @@ function SalesList() {
               <table>
                 <thead>
                   <tr>
-                    <th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Customer')}</th><th>{t('Amount')}</th>
+                    <th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Source')}</th><th>{t('Customer')}</th><th>{t('Amount')}</th>
                     <th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
@@ -89,7 +91,12 @@ function SalesList() {
                     <tr key={s.id}>
                       <td style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/sales/${s.id}`)}>{s.invoice_number}</td>
                       <td>{s.invoice_date}</td>
-                      <td>{s.customer_name || 'Walk-in'}</td>
+                      <td>
+                        <span className="badge badge-info">
+                          {s.invoice_type === 'pos' ? t('POS') : t('Invoice')}
+                        </span>
+                      </td>
+                      <td>{s.customer_name || t('Walk-in Customer')}</td>
                       <td style={{ fontWeight: 600 }}>{formatMoney(s.grand_total)}</td>
                       <td>{formatMoney(s.paid_amount)}</td>
                       <td>{formatMoney(s.balance_amount)}</td>

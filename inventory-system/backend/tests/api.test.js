@@ -281,4 +281,243 @@ describe('Inventory API (no-auth offline mode)', () => {
     assert.ok(r.data.data[0].qr);
     assert.ok(r.data.data[0].code);
   });
+  it('purchase pushes the paid rate onto the product master', async () => {
+    const p = await req('POST', '/products', {
+      name: 'Cost Sync Item', sku: 'CS-1', purchase_price: 40, selling_price: 60, opening_stock: 0,
+    });
+    const id = p.data.data.id;
+
+    const bill = await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_id: id, product_name: 'Cost Sync Item', quantity: 4, unit_price: 55, mrp: 90 }],
+    });
+    assert.strictEqual(bill.status, 201);
+
+    const after = await req('GET', `/products/${id}`);
+    assert.strictEqual(after.data.data.purchase_price, 55);
+    assert.strictEqual(after.data.data.mrp, 90);
+    // Stock from the bill lands on the product too.
+    assert.strictEqual(after.data.data.current_stock, 4);
+  });
+
+  it('creates an unknown product named on a purchase bill', async () => {
+    const bill = await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_name: 'Brand New Widget', quantity: 7, unit_price: 25, tax_rate: 18, mrp: 40 }],
+    });
+    assert.strictEqual(bill.status, 201);
+
+    const list = await req('GET', '/products?search=Brand New Widget');
+    const created = list.data.data.find((x) => x.name === 'Brand New Widget');
+    assert.ok(created, 'product should have been created from the bill');
+    assert.strictEqual(created.purchase_price, 25);
+    assert.strictEqual(created.current_stock, 7);
+    assert.ok(created.sku, 'a SKU is generated for auto-created products');
+  });
+
+  it('reuses the existing product when the typed name already exists', async () => {
+    await req('POST', '/products', {
+      name: 'Existing By Name', sku: 'EBN-1', purchase_price: 10, selling_price: 20, opening_stock: 1,
+    });
+    const before = await req('GET', '/products?search=Existing By Name');
+    const count = before.data.data.filter((x) => x.name === 'Existing By Name').length;
+
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', status: 'completed',
+      items: [{ product_name: 'existing by name', quantity: 2, unit_price: 12 }],
+    });
+
+    const after = await req('GET', '/products?search=Existing By Name');
+    const matches = after.data.data.filter((x) => x.name === 'Existing By Name');
+    assert.strictEqual(matches.length, count, 'no duplicate product is created');
+    assert.strictEqual(matches[0].purchase_price, 12);
+    assert.strictEqual(matches[0].current_stock, 3);
+  });
+
+  it('creates and lists brands', async () => {
+    const created = await req('POST', '/brands', { name: 'Acme', description: 'Test brand' });
+    assert.strictEqual(created.status, 201);
+    const list = await req('GET', '/brands');
+    assert.ok(list.data.data.find((b) => b.name === 'Acme'));
+
+    const updated = await req('PUT', `/brands/${created.data.data.id}`, { name: 'Acme Corp' });
+    assert.strictEqual(updated.data.data.name, 'Acme Corp');
+
+    const removed = await req('DELETE', `/brands/${created.data.data.id}`);
+    assert.strictEqual(removed.status, 200);
+    const after = await req('GET', '/brands');
+    assert.ok(!after.data.data.find((b) => b.id === created.data.data.id));
+  });
+
+  it('keeps a product photo path when one is supplied', async () => {
+    const p = await req('POST', '/products', {
+      name: 'Photo Item', sku: 'PH-1', selling_price: 10, image: '/uploads/products/sample.png',
+    });
+    assert.strictEqual(p.data.data.image, '/uploads/products/sample.png');
+
+    const cleared = await req('PUT', `/products/${p.data.data.id}`, { image: '' });
+    assert.strictEqual(cleared.data.data.image, null);
+  });
+  it('lists POS bills alongside sale invoices, with the customer attached', async () => {
+    const cust = await req('POST', '/customers', { name: 'Counter Cust', phone: '999' });
+    const custId = cust.data.data.id;
+    const prod = await req('POST', '/products', {
+      name: 'POS Item', sku: 'POS-1', selling_price: 30, opening_stock: 10,
+    });
+
+    const pos = await req('POST', '/sales', {
+      invoice_type: 'pos', customer_id: custId, status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: 'POS Item', quantity: 2, unit_price: 30 }],
+      paid_amount: 60,
+    });
+    assert.strictEqual(pos.status, 201);
+
+    // The Sale Invoices screen asks for both kinds in one request.
+    const list = await req('GET', '/sales?type=sale,pos');
+    const row = list.data.data.find((x) => x.id === pos.data.data.id);
+    assert.ok(row, 'POS bill must appear in the sale invoice list');
+    assert.strictEqual(row.customer_name, 'Counter Cust');
+    assert.strictEqual(row.invoice_type, 'pos');
+
+    // ...and the POS sale moved stock like any other sale.
+    const after = await req('GET', `/products/${prod.data.data.id}`);
+    assert.strictEqual(after.data.data.current_stock, 8);
+  });
+
+  it('rejects an unknown invoice type filter', async () => {
+    const r = await req('GET', '/sales?type=not_a_type');
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual(r.data.code, 'ERR_INVALID_ENUM');
+  });
+  it('a party payment clears the receivable it belongs to', async () => {
+    const cust = await req('POST', '/customers', { name: 'Partial Payer', phone: '4242' });
+    const cid = cust.data.data.id;
+    const prod = await req('POST', '/products', {
+      name: 'Payable Widget', sku: 'PW-1', selling_price: 400, opening_stock: 20,
+    });
+
+    // POS bill of 400 with only 300 paid at the counter.
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'pos', customer_id: cid, status: 'completed',
+      items: [{ product_id: prod.data.data.id, product_name: 'Payable Widget', quantity: 1, unit_price: 400 }],
+      paid_amount: 300,
+    });
+    assert.strictEqual(sale.data.data.balance_amount, 100);
+
+    const before = await req('GET', '/dashboard');
+    assert.ok(before.data.data.receivables >= 100);
+
+    // "Record Payment" names the customer but no invoice.
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 100,
+    });
+    assert.strictEqual(pay.status, 201);
+    assert.strictEqual(pay.data.data.unallocated_amount, 0);
+
+    // The invoice is settled, so it leaves the receivables figure.
+    const settled = await req('GET', `/sales/${sale.data.data.id}`);
+    assert.strictEqual(settled.data.data.balance_amount, 0);
+    assert.strictEqual(settled.data.data.payment_status, 'paid');
+
+    const after = await req('GET', '/dashboard');
+    assert.strictEqual(after.data.data.receivables, before.data.data.receivables - 100);
+
+    const cAfter = await req('GET', `/customers/${cid}`);
+    assert.strictEqual(cAfter.data.data.current_balance, 0);
+  });
+
+  it('spreads one payment over the oldest bills and reverses cleanly on delete', async () => {
+    const cid = (await req('POST', '/customers', { name: 'FIFO Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'FIFO Item', sku: 'FI-1', selling_price: 100, opening_stock: 100,
+    })).data.data.id;
+    const mk = (qty, date) => req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed', invoice_date: date,
+      items: [{ product_id: pid, product_name: 'FIFO Item', quantity: qty, unit_price: 100 }],
+      paid_amount: 0,
+    });
+    const older = await mk(2, '2026-01-01'); // 200
+    const newer = await mk(3, '2026-02-01'); // 300
+
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 250,
+    });
+
+    // Oldest bill is cleared first, the remainder lands on the next one.
+    let a = await req('GET', `/sales/${older.data.data.id}`);
+    let b = await req('GET', `/sales/${newer.data.data.id}`);
+    assert.strictEqual(a.data.data.balance_amount, 0);
+    assert.strictEqual(a.data.data.payment_status, 'paid');
+    assert.strictEqual(b.data.data.balance_amount, 250);
+    assert.strictEqual(b.data.data.payment_status, 'partial');
+
+    // Deleting the payment must restore both invoices exactly.
+    await req('DELETE', `/payments/${pay.data.data.id}`);
+    a = await req('GET', `/sales/${older.data.data.id}`);
+    b = await req('GET', `/sales/${newer.data.data.id}`);
+    assert.strictEqual(a.data.data.balance_amount, 200);
+    assert.strictEqual(a.data.data.payment_status, 'unpaid');
+    assert.strictEqual(b.data.data.balance_amount, 300);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 500);
+  });
+
+  it('keeps an overpayment on the customer account as credit', async () => {
+    const cid = (await req('POST', '/customers', { name: 'Advance Cust' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Advance Item', sku: 'AI-1', selling_price: 100, opening_stock: 10,
+    })).data.data.id;
+    await req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed',
+      items: [{ product_id: pid, product_name: 'Advance Item', quantity: 1, unit_price: 100 }],
+      paid_amount: 0,
+    });
+
+    const pay = await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 300,
+    });
+    assert.strictEqual(pay.data.data.unallocated_amount, 200);
+    // 100 settled the bill, 200 sits as credit (negative = we owe them).
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, -200);
+  });
+
+  it('releases money held by a cancelled invoice', async () => {
+    const cid = (await req('POST', '/customers', { name: 'Cancel Payer' })).data.data.id;
+    const pid = (await req('POST', '/products', {
+      name: 'Cancel Item', sku: 'CI-1', selling_price: 100, opening_stock: 10,
+    })).data.data.id;
+    const mk = (date) => req('POST', '/sales', {
+      invoice_type: 'sale', customer_id: cid, status: 'completed', invoice_date: date,
+      items: [{ product_id: pid, product_name: 'Cancel Item', quantity: 1, unit_price: 100 }],
+      paid_amount: 0,
+    });
+    const first = await mk('2026-03-01');
+    const second = await mk('2026-04-01');
+    await req('POST', '/payments', {
+      payment_type: 'payment_in', party_type: 'customer', party_id: cid, amount: 100,
+    });
+
+    await req('POST', `/sales/${first.data.data.id}/cancel`);
+
+    // The cancelled bill gives the money back, which then settles the other one.
+    const cancelled = await req('GET', `/sales/${first.data.data.id}`);
+    assert.strictEqual(cancelled.data.data.paid_amount, 0);
+    const survivor = await req('GET', `/sales/${second.data.data.id}`);
+    assert.strictEqual(survivor.data.data.balance_amount, 0);
+    assert.strictEqual((await req('GET', `/customers/${cid}`)).data.data.current_balance, 0);
+  });
+
+  it('clears supplier payables the same way', async () => {
+    const sid = (await req('POST', '/suppliers', { name: 'Payable Supp' })).data.data.id;
+    await req('POST', '/purchases', {
+      bill_type: 'purchase', supplier_id: sid, status: 'completed',
+      items: [{ product_name: 'Supp Item', quantity: 5, unit_price: 40 }],
+      paid_amount: 100,
+    });
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 100);
+
+    await req('POST', '/payments', {
+      payment_type: 'payment_out', party_type: 'supplier', party_id: sid, amount: 100,
+    });
+    assert.strictEqual((await req('GET', `/suppliers/${sid}`)).data.data.current_balance, 0);
+  });
 });

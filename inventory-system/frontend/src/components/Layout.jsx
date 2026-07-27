@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Package, Users, Truck,
   Wallet, BarChart3, Settings, UserCog, Menu, X, Search, Bell,
   Sun, Moon, ChevronDown, Store, FileText, RotateCcw,
-  ClipboardList, ScanBarcode, CreditCard, Tags, Building2,
+  ClipboardList, ScanBarcode, CreditCard, Tags, Tag, Building2,
   ArrowLeftRight, SlidersHorizontal, Receipt, BookOpen, PiggyBank,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -42,6 +42,7 @@ const NAV = [
     items: [
       { to: '/products', icon: Package, label: 'Products' },
       { to: '/categories', icon: Tags, label: 'Categories' },
+      { to: '/brands', icon: Tag, label: 'Brands' },
       { to: '/warehouses', icon: Building2, label: 'Warehouses' },
       { to: '/stock-transfer', icon: ArrowLeftRight, label: 'Stock Transfer' },
       { to: '/stock-adjustment', icon: SlidersHorizontal, label: 'Stock Adjustment' },

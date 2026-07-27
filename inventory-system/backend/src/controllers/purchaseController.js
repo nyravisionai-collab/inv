@@ -4,6 +4,8 @@ const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = r
 const numberService = require('../services/numberService');
 const stockService = require('../services/stockService');
 const partyService = require('../services/partyService');
+const productService = require('../services/productService');
+const paymentService = require('../services/paymentService');
 const {
   requireArray, validateLineItem, validateDocumentTotals,
   oneOf, optionalDate, pageParams,
@@ -99,9 +101,29 @@ function create(req, res) {
     const processedItems = items.map((item, index) => {
       const v = validateLineItem(item, index);
       const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
+
+      // A bill may name an item that is not in the catalogue yet. Match it by
+      // name and, when it is genuinely new, create the product so the stock
+      // movement and the purchase price are not lost.
+      let productId = item.product_id || null;
+      if (!productId && bill_type !== 'purchase_return') {
+        const linked = productService.findOrCreateByName({
+          ...item,
+          unit_price: v.unitPrice,
+          tax_rate: v.taxRate,
+          tax_type: v.taxType,
+        });
+        if (linked) productId = linked.id;
+      } else if (!productId) {
+        const linked = productService.findByName(item.product_name || item.name);
+        if (linked) productId = linked.id;
+      }
+
       return {
-        product_id: item.product_id || null,
+        product_id: productId,
         product_name: item.product_name || item.name,
+        mrp: item.mrp !== undefined ? Number(item.mrp) || 0 : 0,
+        selling_price: item.selling_price !== undefined ? Number(item.selling_price) || 0 : 0,
         hsn_code: item.hsn_code || null,
         batch_number: item.batch_number || null,
         expiry_date: optionalDate(item.expiry_date, `Item ${index + 1} expiry date`),
@@ -172,21 +194,30 @@ function create(req, res) {
                 `).run(item.product_id, wh, item.batch_number, item.expiry_date, item.quantity, item.unit_price);
               }
             }
-            // Update purchase price
-            db.prepare('UPDATE products SET purchase_price = ?, updated_at = ? WHERE id = ?').run(item.unit_price, now(), item.product_id);
           } else if (bill_type === 'purchase_return') {
             stockService.reduceStock(item.product_id, item.quantity, wh);
           }
+        }
+        // The rate actually paid becomes the product's purchase price (plus
+        // MRP / selling price when the bill carries them) so stock valuation,
+        // margins and the next bill all start from the latest cost.
+        if (bill_type === 'purchase') {
+          productService.applyPurchasePricing(item.product_id, item);
         }
       }
     }
 
     if (paid > 0 && status === 'completed') {
       const payNum = numberService.nextNumber('payment_out');
-      db.prepare(`
+      const payRes = db.prepare(`
         INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, purchase_id, created_by)
         VALUES (?,?,?,?,?,?,?,?,?,?)
       `).run(payNum, 'payment_out', 'supplier', supplier_id || null, date, paid, payment_mode, bank_account_id || null, purchaseId, req.user.id);
+
+      // Already reflected in the bill's paid_amount — record the allocation so
+      // the supplier balance does not subtract it twice.
+      db.prepare('INSERT INTO payment_allocations (payment_id, purchase_id, amount) VALUES (?,?,?)')
+        .run(payRes.lastInsertRowid, purchaseId, paid);
 
       if (bank_account_id) {
         partyService.updateBankBalance(bank_account_id, paid, 'debit');
@@ -233,6 +264,8 @@ function cancel(req, res) {
     }
 
     db.prepare("UPDATE purchases SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now(), purchase.id);
+    // Same as sales: a cancelled bill releases whatever was paid against it.
+    paymentService.releaseDocument('payment_out', purchase.id);
     if (purchase.supplier_id) partyService.updateSupplierBalance(purchase.supplier_id);
     return purchase;
   });

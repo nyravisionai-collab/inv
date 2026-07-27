@@ -4,6 +4,7 @@ const { pageParams } = require('../utils/validate');
 const { today, round2, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
 const partyService = require('../services/partyService');
+const paymentService = require('../services/paymentService');
 
 function list(req, res) {
   try {
@@ -85,32 +86,12 @@ function create(req, res) {
       notes || null, sale_id || null, purchase_id || null, req.user.id
     );
 
-    // Update linked invoice
-    if (sale_id) {
-      const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(sale_id);
-      if (sale) {
-        const newPaid = round2(sale.paid_amount + Number(amount));
-        const newBalance = round2(sale.grand_total - newPaid);
-        let ps = 'unpaid';
-        if (newPaid >= sale.grand_total) ps = 'paid';
-        else if (newPaid > 0) ps = 'partial';
-        db.prepare('UPDATE sales SET paid_amount = ?, balance_amount = ?, payment_status = ? WHERE id = ?')
-          .run(newPaid, Math.max(0, newBalance), ps, sale_id);
-      }
-    }
-
-    if (purchase_id) {
-      const purchase = db.prepare('SELECT * FROM purchases WHERE id = ?').get(purchase_id);
-      if (purchase) {
-        const newPaid = round2(purchase.paid_amount + Number(amount));
-        const newBalance = round2(purchase.grand_total - newPaid);
-        let ps = 'unpaid';
-        if (newPaid >= purchase.grand_total) ps = 'paid';
-        else if (newPaid > 0) ps = 'partial';
-        db.prepare('UPDATE purchases SET paid_amount = ?, balance_amount = ?, payment_status = ? WHERE id = ?')
-          .run(newPaid, Math.max(0, newBalance), ps, purchase_id);
-      }
-    }
+    // Settle the money against the party's open bills. A payment aimed at one
+    // invoice clears that invoice; a plain "Record Payment" for a customer is
+    // spread over their oldest unpaid documents, so the amount stops being
+    // reported as receivable/payable on the dashboard.
+    const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(result.lastInsertRowid);
+    const unapplied = paymentService.allocatePayment(payment);
 
     // Bank balance
     if (baId) {
@@ -121,7 +102,9 @@ function create(req, res) {
     if (party_type === 'customer' && party_id) partyService.updateCustomerBalance(party_id);
     if (party_type === 'supplier' && party_id) partyService.updateSupplierBalance(party_id);
 
-    return db.prepare('SELECT * FROM payments WHERE id = ?').get(result.lastInsertRowid);
+    const saved = db.prepare('SELECT * FROM payments WHERE id = ?').get(result.lastInsertRowid);
+    // Anything left over is an advance sitting on the party's account.
+    return { ...saved, unallocated_amount: round2(unapplied) };
   });
 
   try {
@@ -133,45 +116,27 @@ function create(req, res) {
 }
 
 function remove(req, res) {
-  try {
+  const txn = db.transaction(() => {
     const p = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
-    if (!p) return error(res, 'Payment not found', 404);
+    if (!p) throw Object.assign(new Error('Payment not found'), { status: 404, code: 'ERR_NOT_FOUND' });
+
+    // Put back exactly what this payment settled, then remove it.
+    paymentService.releasePayment(p.id);
     db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
 
-    if (p.sale_id) {
-      const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(p.sale_id);
-      if (sale) {
-        const newPaid = Math.max(0, round2(sale.paid_amount - p.amount));
-        const newBalance = round2(sale.grand_total - newPaid);
-        let ps = 'unpaid';
-        if (newPaid >= sale.grand_total) ps = 'paid';
-        else if (newPaid > 0) ps = 'partial';
-        db.prepare('UPDATE sales SET paid_amount = ?, balance_amount = ?, payment_status = ? WHERE id = ?')
-          .run(newPaid, newBalance, ps, p.sale_id);
-      }
-    }
-    if (p.purchase_id) {
-      const purchase = db.prepare('SELECT * FROM purchases WHERE id = ?').get(p.purchase_id);
-      if (purchase) {
-        const newPaid = Math.max(0, round2(purchase.paid_amount - p.amount));
-        const newBalance = round2(purchase.grand_total - newPaid);
-        let ps = 'unpaid';
-        if (newPaid >= purchase.grand_total) ps = 'paid';
-        else if (newPaid > 0) ps = 'partial';
-        db.prepare('UPDATE purchases SET paid_amount = ?, balance_amount = ?, payment_status = ? WHERE id = ?')
-          .run(newPaid, newBalance, ps, p.purchase_id);
-      }
-    }
     if (p.bank_account_id) {
       if (p.payment_type === 'payment_in') partyService.updateBankBalance(p.bank_account_id, p.amount, 'debit');
       else partyService.updateBankBalance(p.bank_account_id, p.amount, 'credit');
     }
     if (p.party_type === 'customer' && p.party_id) partyService.updateCustomerBalance(p.party_id);
     if (p.party_type === 'supplier' && p.party_id) partyService.updateSupplierBalance(p.party_id);
+  });
 
+  try {
+    txn();
     return success(res, null, 'Payment deleted');
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message, err.status || 500, null, err.code);
   }
 }
 

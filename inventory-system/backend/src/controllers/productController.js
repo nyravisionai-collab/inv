@@ -4,6 +4,34 @@ const { pageParams } = require('../utils/validate');
 const { now, sanitizeLike } = require('../utils/helpers');
 const stockService = require('../services/stockService');
 const QRCode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
+const config = require('../config');
+
+/**
+ * Multipart form fields arrive as strings, so a checkbox that is off reaches
+ * the server as the string "false" — truthy in JavaScript. Normalise before
+ * storing flags.
+ */
+function toBool(value) {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    return v !== '' && v !== '0' && v !== 'false' && v !== 'null' && v !== 'undefined';
+  }
+  return !!value;
+}
+
+/** Remove a previously uploaded product photo that is no longer referenced. */
+function removeUploadedImage(imagePath) {
+  if (!imagePath || !imagePath.startsWith('/uploads/products/')) return;
+  try {
+    const file = path.join(path.resolve(config.uploadDir), 'products', path.basename(imagePath));
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch {
+    /* a stale file is harmless — never fail the request over it */
+  }
+}
 
 function list(req, res) {
   try {
@@ -90,6 +118,8 @@ function create(req, res) {
       if (ex && ex.is_active) return error(res, 'Barcode already exists');
     }
 
+    const image = req.file ? `/uploads/products/${req.file.filename}` : (req.body.image || null);
+
     // Reactivate soft-deleted product with same SKU if present
     if (sku) {
       const inactive = db.prepare('SELECT * FROM products WHERE sku = ? AND is_active = 0').get(sku);
@@ -97,7 +127,7 @@ function create(req, res) {
         db.prepare(`
           UPDATE products SET name=?, barcode=?, hsn_code=?, description=?, category_id=?, brand_id=?, unit_id=?,
             purchase_price=?, selling_price=?, mrp=?, tax_rate=?, tax_type=?, min_stock=?, max_stock=?,
-            reorder_level=?, is_active=1, updated_at=?
+            reorder_level=?, image=?, is_active=1, updated_at=?
           WHERE id=?
         `).run(
           name, barcode || null, hsn_code || null, description || null,
@@ -105,13 +135,13 @@ function create(req, res) {
           Number(purchase_price) || 0, Number(selling_price) || 0, Number(mrp) || 0,
           Number(tax_rate) || 0, tax_type || 'exclusive',
           Number(min_stock) || 0, Number(max_stock) || 0, Number(reorder_level) || 0,
+          image !== null ? image : inactive.image,
           now(), inactive.id
         );
         return success(res, db.prepare('SELECT * FROM products WHERE id = ?').get(inactive.id), 'Product restored', 201);
       }
     }
 
-    const image = req.file ? `/uploads/products/${req.file.filename}` : (req.body.image || null);
     const stock = Number(opening_stock) || 0;
 
     const result = db.prepare(`
@@ -127,11 +157,11 @@ function create(req, res) {
       Number(tax_rate) || 0, tax_type || 'exclusive',
       Number(min_stock) || 0, Number(max_stock) || 0, Number(reorder_level) || 0,
       stock, stock, image,
-      has_batch ? 1 : 0, has_expiry ? 1 : 0, is_service ? 1 : 0
+      toBool(has_batch) ? 1 : 0, toBool(has_expiry) ? 1 : 0, toBool(is_service) ? 1 : 0
     );
 
     const productId = result.lastInsertRowid;
-    if (stock > 0 && !is_service) {
+    if (stock > 0 && !toBool(is_service)) {
       const wh = warehouse_id || stockService.getDefaultWarehouse()?.id;
       if (wh) stockService.setWarehouseStock(productId, wh, stock);
     }
@@ -162,7 +192,12 @@ function update(req, res) {
       if (ex && ex.is_active) return error(res, 'Barcode already exists');
     }
 
-    const image = req.file ? `/uploads/products/${req.file.filename}` : (b.image !== undefined ? b.image : existing.image);
+    // Three cases: a new file was uploaded, `image` was explicitly cleared
+    // (photo removed in the UI), or the field was not sent at all (keep).
+    let image = existing.image;
+    if (req.file) image = `/uploads/products/${req.file.filename}`;
+    else if (b.image !== undefined) image = b.image || null;
+    if (image !== existing.image) removeUploadedImage(existing.image);
 
     db.prepare(`
       UPDATE products SET
@@ -188,10 +223,10 @@ function update(req, res) {
       b.max_stock !== undefined ? Number(b.max_stock) : existing.max_stock,
       b.reorder_level !== undefined ? Number(b.reorder_level) : existing.reorder_level,
       image,
-      b.has_batch !== undefined ? (b.has_batch ? 1 : 0) : existing.has_batch,
-      b.has_expiry !== undefined ? (b.has_expiry ? 1 : 0) : existing.has_expiry,
-      b.is_service !== undefined ? (b.is_service ? 1 : 0) : existing.is_service,
-      b.is_active !== undefined ? (b.is_active ? 1 : 0) : existing.is_active,
+      b.has_batch !== undefined ? (toBool(b.has_batch) ? 1 : 0) : existing.has_batch,
+      b.has_expiry !== undefined ? (toBool(b.has_expiry) ? 1 : 0) : existing.has_expiry,
+      b.is_service !== undefined ? (toBool(b.is_service) ? 1 : 0) : existing.is_service,
+      b.is_active !== undefined ? (toBool(b.is_active) ? 1 : 0) : existing.is_active,
       now(), id
     );
 

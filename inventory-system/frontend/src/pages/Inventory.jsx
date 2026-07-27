@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit, AlertTriangle, ArrowLeftRight, SlidersHorizontal } from 'lucide-react';
+import { Plus, Trash2, Edit, AlertTriangle, ArrowLeftRight, SlidersHorizontal, Tag } from 'lucide-react';
 import { inventoryAPI, productsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -76,6 +76,84 @@ export function Categories() {
         <div className="form-group">
           <label className="form-label">{t('Name')}</label>
           <input className="form-control" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+export function Brands() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ name: '', description: '' });
+  const [editId, setEditId] = useState(null);
+  const { success, error } = useToast();
+  const confirm = useConfirm();
+  const { t } = useAuth();
+
+  const load = () => {
+    setLoading(true);
+    inventoryAPI.brands().then((r) => setItems(r.data.data)).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    if (!form.name.trim()) return error(t('Name required'));
+    try {
+      if (editId) await inventoryAPI.updateBrand(editId, form);
+      else await inventoryAPI.createBrand(form);
+      success(editId ? t('Updated') : t('Created'));
+      setModal(false); setForm({ name: '', description: '' }); setEditId(null); load();
+    } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
+  };
+
+  const remove = async (id) => {
+    if (!(await confirm(t('Delete brand?')))) return;
+    try { await inventoryAPI.deleteBrand(id); success(t('Deleted')); load(); }
+    catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><h1 className="page-title">{t('Brands')}</h1><p className="page-subtitle">{items.length} {t('brands')}</p></div>
+        <button className="btn btn-primary" onClick={() => { setForm({ name: '', description: '' }); setEditId(null); setModal(true); }}><Plus size={18} /> {t('Add Brand')}</button>
+      </div>
+      <div className="card">
+        {loading ? <div className="spinner" /> : items.length === 0 ? <EmptyState icon={Tag} title="No brands" message="Add a brand so products can be grouped by maker" action={<button className="btn btn-primary" onClick={() => { setForm({ name: '', description: '' }); setEditId(null); setModal(true); }}>{t('Add Brand')}</button>} /> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>{t('Name')}</th><th>{t('Description')}</th><th>{t('Products')}</th><th>{t('Actions')}</th></tr></thead>
+              <tbody>
+                {items.map((b) => (
+                  <tr key={b.id}>
+                    <td style={{ fontWeight: 500 }}>{b.name}</td>
+                    <td>{b.description || '\u2014'}</td>
+                    <td>{b.product_count}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn-icon" onClick={() => { setForm({ name: b.name, description: b.description || '' }); setEditId(b.id); setModal(true); }}><Edit size={16} /></button>
+                        <button className="btn-icon" onClick={() => remove(b.id)}><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Brand' : 'Add Brand'}
+        footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save}>{t('Save')}</button></>}
+      >
+        <div className="form-group">
+          <label className="form-label">{t('Name')}<span className="required">*</span></label>
+          <input className="form-control" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
+        </div>
+        <div className="form-group">
+          <label className="form-label">{t('Description')}</label>
+          <input className="form-control" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         </div>
       </Modal>
     </div>
