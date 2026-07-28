@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS company_settings (
   id INTEGER PRIMARY KEY CHECK(id = 1),
-  company_name TEXT DEFAULT 'My Business',
+  company_name TEXT DEFAULT 'Electricalskart',
   legal_name TEXT,
   address TEXT,
   city TEXT,

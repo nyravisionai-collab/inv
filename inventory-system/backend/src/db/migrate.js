@@ -266,7 +266,7 @@ async function migrate() {
 
       const existing = db.prepare('SELECT id FROM company_settings WHERE id = 1').get();
       if (!existing) {
-        db.prepare(`INSERT INTO company_settings (id, company_name) VALUES (1, 'My Business')`).run();
+        db.prepare(`INSERT INTO company_settings (id, company_name) VALUES (1, 'Electricalskart')`).run();
       }
 
       db.exec('COMMIT');

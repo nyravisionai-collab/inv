@@ -406,7 +406,7 @@ function pdfInvoice(req, res) {
 
     setBold(true);
     doc.fontSize(20);
-    writeText(company.company_name || 'My Business', { align: 'left' });
+    writeText(company.company_name || 'Electricalskart', { align: 'left' });
     setBold(false);
     doc.fontSize(10).fillColor('#666');
     if (company.address) writeText(company.address);
