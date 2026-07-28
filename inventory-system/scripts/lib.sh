@@ -250,9 +250,35 @@ stop_pid() {
 # Dependency installation
 # ---------------------------------------------------------------------------
 
-# deps_ok <workspace-dir> <required binary/module...> -- detects a *complete*
-# install. The old check used AND between two modules, so a half-finished
-# `npm install` looked fine. Every probe must exist here.
+# dependency_lock_stamp <workspace-dir>
+#
+# node_modules being present is not enough after the app is updated: an older
+# dependency tree can still have all of the few modules we probe below, while
+# missing a newly added package or containing an incompatible React/Vite pair.
+# Keep a tiny, ignored stamp beside node_modules and compare it to the checked
+# in lock file. `cksum` is POSIX and is available in Termux, macOS and Linux.
+dependency_lock_stamp() {
+  local dir=$1 lock="$1/package-lock.json"
+  [ -f "$lock" ] || return 1
+  cksum < "$lock" | awk '{print $1 ":" $2}'
+}
+
+deps_lock_matches() {
+  local dir=$1 stamp expected
+  stamp="$dir/node_modules/.inventory-lock-stamp"
+  expected=$(dependency_lock_stamp "$dir") || return 1
+  [ -f "$stamp" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$expected" ]
+}
+
+write_deps_lock_stamp() {
+  local dir=$1 expected
+  expected=$(dependency_lock_stamp "$dir") || return 0
+  printf '%s\n' "$expected" > "$dir/node_modules/.inventory-lock-stamp"
+}
+
+# deps_ok <workspace-dir> <required binary/module...> -- detects a complete,
+# lockfile-matched install. The old check used AND between two modules, so a
+# half-finished or stale `npm install` looked fine. Every probe must exist.
 deps_ok() {
   local dir=$1; shift
   [ -d "$dir/node_modules" ] || return 1
@@ -260,12 +286,12 @@ deps_ok() {
   for probe in "$@"; do
     [ -e "$dir/node_modules/$probe" ] || return 1
   done
-  return 0
+  deps_lock_matches "$dir"
 }
 
-# ensure_deps <workspace-dir> <label> <npm install args...> -- installs only
-# when needed and verifies the result, so a partial install cannot be mistaken
-# for success.
+# ensure_deps <workspace-dir> <label> <npm install args...> -- installs when
+# needed and verifies the result, so a partial *or stale* install cannot be
+# mistaken for success.
 ensure_deps() {
   local dir=$1 label=$2; shift 2
   local -a probes=() npm_args=()
@@ -281,7 +307,7 @@ ensure_deps() {
   fi
 
   if [ -d "$dir/node_modules" ]; then
-    log_warn "$label dependencies look incomplete (a previous 'npm install' was interrupted). Re-installing."
+    log_warn "$label dependencies are incomplete or do not match package-lock.json. Re-installing."
   else
     log_step "Installing $label dependencies (first run — this can take a few minutes)..."
   fi
@@ -293,6 +319,9 @@ ensure_deps() {
     return $EX_MISSING_DEP
   fi
 
+  # npm may refresh package-lock.json while resolving an older tree, so stamp
+  # it only after npm has completed successfully.
+  write_deps_lock_stamp "$dir"
   if ! deps_ok "$dir" "${probes[@]}"; then
     log_err "'npm install' finished but the $label is still missing required packages."
     printf '  Expected under %s/node_modules: %s\n' "$dir" "${probes[*]}" >&2
