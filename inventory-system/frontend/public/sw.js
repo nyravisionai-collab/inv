@@ -12,7 +12,7 @@
  * (see the `activate` handler below) instead of serving stale shell files
  * forever.
  */
-const CACHE = 'inv-mgmt-v3';
+const CACHE = 'inv-mgmt-v4';
 const ASSETS = [
   '/',
   '/index.html',
@@ -37,6 +37,26 @@ self.addEventListener('activate', (e) => {
     )
   );
   self.clients.claim();
+});
+
+/** Clear every cache belonging to this origin. */
+async function clearAllCaches() {
+  const keys = await caches.keys();
+  await Promise.all(keys.map((k) => caches.delete(k)));
+}
+
+/** Handle messages sent from the client page. */
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'CLEAR_CACHES') {
+    e.waitUntil(
+      clearAllCaches().then(() => {
+        // Notify all clients that caches were cleared so the page can reload.
+        self.clients.matchAll().then((clients) => {
+          clients.forEach((client) => client.postMessage({ type: 'CACHES_CLEARED' }));
+        });
+      })
+    );
+  }
 });
 
 self.addEventListener('fetch', (e) => {

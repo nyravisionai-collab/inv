@@ -25,7 +25,13 @@ export default class ErrorBoundary extends Component {
   };
 
   handleReload = () => {
-    window.location.reload();
+    // Prefer the cache-clearing reload installed in main.jsx, which
+    // flushes stale SW-cached assets before the page re-fetches them.
+    if (window.__clearCachesAndReload) {
+      window.__clearCachesAndReload();
+    } else {
+      window.location.reload();
+    }
   };
 
   render() {
