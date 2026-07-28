@@ -45,7 +45,7 @@ module.exports = {
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   lanOnly: parseBool(process.env.LAN_ONLY, true),
   serveFrontend: parseBool(process.env.SERVE_FRONTEND, false),
-  companyName: process.env.COMPANY_NAME || 'My Business',
+  companyName: process.env.COMPANY_NAME || 'Electricalskart',
   currency: process.env.CURRENCY || 'INR',
   currencySymbol: process.env.CURRENCY_SYMBOL || '₹',
   timezone: process.env.TIMEZONE || 'Asia/Kolkata',

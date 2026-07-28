@@ -20,7 +20,7 @@ async function seed() {
     db.prepare(`
       INSERT INTO users (username, email, password_hash, full_name, phone, role, permissions)
       VALUES (?,?,?,?,?,?,?)
-    `).run('admin', 'admin@inventory.local', hash, 'System Admin', '9876543210', 'admin', JSON.stringify({ all: true }));
+    `).run('admin', 'electricohydro@gmail.com', hash, 'HIRAPARA HARDIK ASHOKBHAI', '9265560630', 'admin', JSON.stringify({ all: true }));
 
     // Staff users
     const staffHash = bcrypt.hashSync('staff123', config.bcryptRounds);
@@ -41,13 +41,14 @@ async function seed() {
     db.prepare(`
       UPDATE company_settings SET
         company_name = ?, legal_name = ?, address = ?, city = ?, state = ?, pincode = ?,
-        phone = ?, email = ?, gstin = ?, pan = ?, invoice_terms = ?
+        phone = ?, email = ?, gstin = ?, pan = ?, website = ?, invoice_terms = ?
       WHERE id = 1
     `).run(
-      'Shree Traders', 'Shree Traders Pvt Ltd', '12 Market Road, Ring Road',
-      'Surat', 'Gujarat', '395002', '9876543210', 'info@shreetraders.com',
-      '24AAAAA0000A1Z5', 'AAAAA0000A',
-      'Goods once sold will not be taken back. Payment due within 30 days.'
+      'Electricalskart', 'HIRAPARA HARDIK ASHOKBHAI',
+      'Fourth Floor, Flat No. 404/B, Nilkanth Apartment, Lambe Hanuman Road, Varachha, Kapodara',
+      'Surat', 'Gujarat', '395006', '9265560630', 'electricohydro@gmail.com',
+      '24ATWPH4846C2ZI', 'TWPH4846C', 'electricalskart.com',
+      'Goods once sold will not be returned. Payment due within 30 days. Subject to Surat jurisdiction.'
     );
 
     // Units
