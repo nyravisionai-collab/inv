@@ -431,6 +431,27 @@ function stockReport(req, res) {
   }
 }
 
+function expiryReport(req, res) {
+  try {
+    const days = Math.max(1, Math.min(365, Number(req.query.days) || 90));
+    const rows = db.prepare(`SELECT pb.id, p.name product_name, p.sku, w.name warehouse_name, pb.batch_number, pb.expiry_date, pb.quantity, pb.purchase_price
+      FROM product_batches pb JOIN products p ON p.id=pb.product_id LEFT JOIN warehouses w ON w.id=pb.warehouse_id
+      WHERE pb.quantity > 0 AND pb.expiry_date IS NOT NULL AND pb.expiry_date <= date('now', '+' || ? || ' days')
+      ORDER BY pb.expiry_date`).all(days);
+    return success(res, { days, rows });
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+function warehouseStockReport(req, res) {
+  try {
+    const rows = db.prepare(`SELECT w.name warehouse_name, p.sku, p.name product_name, COALESCE(ws.quantity, 0) quantity,
+      p.purchase_price, ROUND(COALESCE(ws.quantity,0) * COALESCE(p.purchase_price,0),2) stock_value
+      FROM warehouse_stock ws JOIN warehouses w ON w.id=ws.warehouse_id JOIN products p ON p.id=ws.product_id
+      WHERE w.is_active=1 AND p.is_active=1 ORDER BY w.name, p.name`).all();
+    return success(res, { rows });
+  } catch (err) { return error(res, err.message, 500); }
+}
+
 module.exports = {
   listCategories, createCategory, updateCategory, deleteCategory,
   listBrands, createBrand, updateBrand, deleteBrand,
@@ -438,5 +459,5 @@ module.exports = {
   listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse,
   listTransfers, createTransfer,
   listAdjustments, createAdjustment,
-  stockReport,
+  stockReport, expiryReport, warehouseStockReport,
 };

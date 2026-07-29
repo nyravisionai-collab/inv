@@ -311,10 +311,33 @@ function cashBook(req, res) {
   }
 }
 
+
+async function cashBookPdf(req, res) {
+  let payload;
+  const collector = { status() { return this; }, json(body) { payload = body; return body; } };
+  try {
+    cashBook(req, collector);
+    if (!payload?.success) return error(res, payload?.message || 'Could not create cash book', 500);
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const file = await saveReportPdf({ name: `cash-book-${req.query.from_date || 'all'}-${req.query.to_date || 'all'}-${Date.now()}`, title: 'CASH BOOK', subtitle: `${req.query.from_date || ''} to ${req.query.to_date || ''}`, data: payload.data });
+    return success(res, { fileName: file.fileName, folder: require('../config').exportDir }, 'Cash book PDF saved');
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+async function expensePdf(req, res) {
+  try {
+    const expense = db.prepare('SELECT e.*, ba.account_name bank_account_name FROM expenses e LEFT JOIN bank_accounts ba ON ba.id=e.bank_account_id WHERE e.id=?').get(req.params.id);
+    if (!expense) return error(res, 'Expense not found', 404);
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const file = await saveReportPdf({ name: `expense-voucher-${expense.expense_number}`, title: 'EXPENSE VOUCHER', data: { voucher_number: expense.expense_number, date: expense.expense_date, category: expense.category, description: expense.description || '—', payment_mode: expense.payment_mode, account: expense.bank_account_name || '—', reference: expense.reference_number || '—', amount: expense.amount } });
+    return success(res, { fileName: file.fileName, folder: require('../config').exportDir }, 'Expense voucher PDF saved');
+  } catch (err) { return error(res, err.message, 500); }
+}
+
 module.exports = {
   listBanks, createBank, updateBank,
-  listExpenses, createExpense, deleteExpense,
+  listExpenses, createExpense, deleteExpense, expensePdf,
   listIncomes, createIncome,
   listJournals, getJournal, createJournal,
-  cashBook,
+  cashBook, cashBookPdf,
 };

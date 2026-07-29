@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer } from 'lucide-react';
+import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2 } from 'lucide-react';
 import { salesAPI, customersAPI, productsAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -17,6 +17,7 @@ const TYPE_MAP = {
   '/sales': { type: 'sale,pos', createType: 'sale', title: 'Sale Invoices', createLabel: 'New Sale' },
   '/estimates': { type: 'estimate', title: 'Estimates / Quotations', createLabel: 'New Estimate' },
   '/sale-orders': { type: 'sale_order', title: 'Sale Orders', createLabel: 'New Sale Order' },
+  '/delivery-challans': { type: 'delivery_challan', title: 'Delivery Challans', createLabel: 'New Delivery Challan' },
   '/sale-returns': { type: 'sale_return', title: 'Sale Returns', createLabel: 'New Credit Note' },
 };
 
@@ -146,6 +147,7 @@ function SaleForm() {
     customer_id: '', invoice_date: today(), due_date: '', warehouse_id: '',
     discount_type: 'amount', discount_value: 0, shipping_charges: 0,
     notes: '', paid_amount: 0, payment_mode: 'cash',
+    transporter_name: '', vehicle_number: '', lr_number: '', dispatch_address: '', eway_bill_number: '',
   });
   const [items, setItems] = useState(() => [withRowId(emptyLine)]);
   const [productSearch, setProductSearch] = useState('');
@@ -304,6 +306,13 @@ function SaleForm() {
               </select>
             </div>
           </div>
+          {cfg.type === 'delivery_challan' && <div className="form-row" style={{ marginTop: 12 }}>
+            <div className="form-group"><label className="form-label">{t('Transporter')}</label><input className="form-control" value={form.transporter_name} onChange={(e) => setForm({ ...form, transporter_name: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">{t('Vehicle Number')}</label><input className="form-control" value={form.vehicle_number} onChange={(e) => setForm({ ...form, vehicle_number: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">{t('LR Number')}</label><input className="form-control" value={form.lr_number} onChange={(e) => setForm({ ...form, lr_number: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">{t('E-way Bill Number')}</label><input className="form-control" value={form.eway_bill_number} onChange={(e) => setForm({ ...form, eway_bill_number: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label">{t('Dispatch Address')}</label><input className="form-control" value={form.dispatch_address} onChange={(e) => setForm({ ...form, dispatch_address: e.target.value })} /></div>
+          </div>}
         </div>
       </div>
 
@@ -445,6 +454,47 @@ function SaleDetail() {
     salesAPI.get(id).then((r) => setSale(r.data.data)).catch(() => error(t('Not found'))).finally(() => setLoading(false));
   }, [id]);
 
+  const createPartialChallan = async () => {
+    // Each order line is prompted separately, allowing zero to skip it and a
+    // smaller number to make a genuinely partial delivery.
+    const items = [];
+    for (const item of sale.items || []) {
+      const entered = window.prompt(`${t('Quantity to deliver')} — ${item.product_name} (ordered: ${item.quantity})`, String(item.quantity));
+      if (entered === null) return;
+      const quantity = Number(entered);
+      if (quantity > 0) items.push({ product_id: item.product_id, product_name: item.product_name, quantity });
+    }
+    if (!items.length) return error(t('Enter at least one delivery quantity'));
+    try {
+      const r = await salesAPI.createPartialChallan(id, { items });
+      success(t('Delivery Challan created'));
+      navigate(`/sales/${r.data.data.id}`);
+    } catch (err) { error(err.response?.data?.message || t('Could not create delivery challan')); }
+  };
+
+  const convertChallanToInvoice = async () => {
+    try {
+      const r = await salesAPI.convert(id, { to_type: 'sale' });
+      success(t('Delivery Challan converted to Invoice'));
+      navigate(`/sales/${r.data.data.id}`);
+    } catch (err) { error(err.response?.data?.message || t('Could not convert delivery challan')); }
+  };
+
+  const sharePdf = async () => {
+    try {
+      const response = await fetch(salesAPI.pdf(id));
+      if (!response.ok) throw new Error('PDF unavailable');
+      const file = new File([await response.blob()], `${sale.invoice_number}.pdf`, { type: 'application/pdf' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: sale.invoice_number, text: `${sale.invoice_type}: ${sale.invoice_number}`, files: [file] });
+        return;
+      }
+      // Desktop browsers cannot attach files to WhatsApp; opening the PDF is a useful fallback.
+      window.open(salesAPI.pdf(id), '_blank', 'noopener');
+      success(t('PDF opened — attach it in WhatsApp'));
+    } catch { error(t('Could not share PDF')); }
+  };
+
   const sendWhatsApp = async () => {
     try {
       const r = await salesAPI.whatsapp(id);
@@ -467,6 +517,9 @@ function SaleDetail() {
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
           <a className="btn btn-secondary" href={salesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a>
+          {sale.invoice_type === 'sale_order' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={createPartialChallan}>{t('Create Delivery Challan')}</button>}
+          {sale.invoice_type === 'delivery_challan' && sale.status !== 'converted' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={convertChallanToInvoice}>{t('Convert to Invoice')}</button>}
+          <button className="btn btn-success" onClick={sharePdf}><Share2 size={18} /> {t('Share PDF')}</button>
           <button className="btn btn-success" onClick={sendWhatsApp}><MessageCircle size={18} /> WhatsApp</button>
           <button className="btn btn-primary" onClick={() => window.print()}><Printer size={18} /> {t('Print')}</button>
         </div>

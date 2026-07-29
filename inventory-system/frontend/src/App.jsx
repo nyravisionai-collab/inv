@@ -64,6 +64,8 @@ function AppRoutes() {
           <Route path="estimates/new" element={<Sales />} />
           <Route path="sale-orders" element={<Sales />} />
           <Route path="sale-orders/new" element={<Sales />} />
+          <Route path="delivery-challans" element={<Sales />} />
+          <Route path="delivery-challans/new" element={<Sales />} />
           <Route path="sale-returns" element={<Sales />} />
           <Route path="sale-returns/new" element={<Sales />} />
           <Route path="payments-in" element={<Payments />} />

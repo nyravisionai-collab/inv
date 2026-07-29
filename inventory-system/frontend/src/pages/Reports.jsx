@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, FileText, Package, Users, Truck, Receipt } from 'lucide-react';
+import { TrendingUp, FileText, Package, Users, Truck, Receipt, Download } from 'lucide-react';
 import { reportsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,6 +19,11 @@ const REPORTS = [
   { id: 'stock', label: 'Stock Report', icon: Package, color: 'teal' },
   { id: 'customers', label: 'Customer Report', icon: Users, color: 'blue' },
   { id: 'suppliers', label: 'Supplier Report', icon: Truck, color: 'purple' },
+  { id: 'outstanding', label: 'Outstanding & Payable', icon: Receipt, color: 'red' },
+  { id: 'product-profit', label: 'Product Profit', icon: TrendingUp, color: 'green' },
+  { id: 'customer-profit', label: 'Customer Profit', icon: Users, color: 'blue' },
+  { id: 'expiry', label: 'Expiry & Batch Report', icon: Package, color: 'red' },
+  { id: 'warehouse-stock', label: 'Warehouse Stock Report', icon: Package, color: 'teal' },
 ];
 
 export default function Reports() {
@@ -28,6 +33,16 @@ export default function Reports() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
   const { formatMoney, t } = useAuth();
+  const [exportMessage, setExportMessage] = useState('');
+
+  const exportPdf = async () => {
+    if (!active) return;
+    try {
+      const params = active === 'balance-sheet' ? { as_of: to } : { from_date: from, to_date: to };
+      const result = await reportsAPI.pdf(active, params);
+      setExportMessage(`${t('PDF saved')}: ${result.data?.data?.fileName || ''}`);
+    } catch { setExportMessage(t('PDF export failed')); }
+  };
 
   const load = async (id) => {
     setActive(id);
@@ -46,6 +61,11 @@ export default function Reports() {
         case 'stock': res = await reportsAPI.stock(); break;
         case 'customers': res = await reportsAPI.customers(); break;
         case 'suppliers': res = await reportsAPI.suppliers(); break;
+        case 'outstanding': res = await reportsAPI.outstanding(); break;
+        case 'product-profit': res = await reportsAPI.productProfit(params); break;
+        case 'customer-profit': res = await reportsAPI.customerProfit(params); break;
+        case 'expiry': res = await reportsAPI.expiry({ days: 90 }); break;
+        case 'warehouse-stock': res = await reportsAPI.warehouseStock(); break;
         default: break;
       }
       setData(res?.data?.data);
@@ -312,12 +332,14 @@ export default function Reports() {
       );
     }
 
-    return null;
+    const rows = data.rows || data.customers || [];
+    return <div className="card"><div className="card-body"><pre style={{ whiteSpace: 'pre-wrap', overflow: 'auto' }}>{JSON.stringify(data.rows ? rows : data, null, 2)}</pre></div></div>;
   };
 
   return (
     <div>
       <div className="page-header">
+        {active && <button className="btn btn-secondary" onClick={exportPdf}><Download size={18} /> {t('Export PDF')}</button>}
         <div>
           <h1 className="page-title">{t('Reports')}</h1>
           <p className="page-subtitle">{t('Business analytics and financial reports')}</p>
@@ -351,7 +373,8 @@ export default function Reports() {
           <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
             {t(REPORTS.find((r) => r.id === active)?.label || '')}
           </h2>
-          {renderReport()}
+          {exportMessage && <div className="alert alert-success">{exportMessage}</div>}
+      {renderReport()}
         </div>
       )}
     </div>

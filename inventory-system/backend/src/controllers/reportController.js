@@ -363,7 +363,68 @@ function supplierReport(req, res) {
   }
 }
 
+function outstandingReport(req, res) {
+  try {
+    const customers = db.prepare(`SELECT name, phone, current_balance as outstanding FROM customers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    const suppliers = db.prepare(`SELECT name, phone, current_balance as payable FROM suppliers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    return success(res, { customers, suppliers, customerOutstanding: customers.reduce((n, r) => n + Number(r.outstanding || 0), 0), supplierPayable: suppliers.reduce((n, r) => n + Number(r.payable || 0), 0) });
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+function productProfitReport(req, res) {
+  try {
+    const from = req.query.from_date || today().slice(0, 8) + '01'; const to = req.query.to_date || today();
+    const rows = db.prepare(`SELECT si.product_name, SUM(si.quantity) quantity, ROUND(SUM(si.total),2) sales,
+      ROUND(SUM(si.quantity * COALESCE(si.cost_price, 0)),2) cost,
+      ROUND(SUM(si.total - si.quantity * COALESCE(si.cost_price, 0)),2) profit
+      FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ? GROUP BY si.product_id, si.product_name ORDER BY profit DESC`).all(from, to);
+    return success(res, { from, to, rows });
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+function customerProfitReport(req, res) {
+  try {
+    const from = req.query.from_date || today().slice(0, 8) + '01'; const to = req.query.to_date || today();
+    const rows = db.prepare(`SELECT COALESCE(c.name, 'Walk-in Customer') customer_name, COUNT(DISTINCT s.id) invoices,
+      ROUND(SUM(si.total),2) sales, ROUND(SUM(si.quantity * COALESCE(si.cost_price,0)),2) cost,
+      ROUND(SUM(si.total - si.quantity * COALESCE(si.cost_price,0)),2) profit
+      FROM sales s JOIN sale_items si ON si.sale_id=s.id LEFT JOIN customers c ON c.id=s.customer_id
+      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ? GROUP BY s.customer_id ORDER BY profit DESC`).all(from, to);
+    return success(res, { from, to, rows });
+  } catch (err) { return error(res, err.message, 500); }
+}
+
 module.exports = {
   profitLoss, balanceSheet, gstReport, salesReport, purchaseReport,
-  expenseReport, taxReport, customerReport, supplierReport,
+  expenseReport, taxReport, customerReport, supplierReport, outstandingReport, productProfitReport, customerProfitReport,
 };
+
+// Creates a persistent server-side export for every report endpoint.  Calling
+// the existing report functions through this small response collector keeps the
+// PDF and on-screen report calculations exactly the same.
+async function pdfExport(req, res) {
+  const handlers = {
+    'profit-loss': profitLoss, 'balance-sheet': balanceSheet, gst: gstReport,
+    sales: salesReport, purchases: purchaseReport, expenses: expenseReport,
+    tax: taxReport, customers: customerReport, suppliers: supplierReport, outstanding: outstandingReport, 'product-profit': productProfitReport, 'customer-profit': customerProfitReport,
+    stock: require('./inventoryController').stockReport, expiry: require('./inventoryController').expiryReport, 'warehouse-stock': require('./inventoryController').warehouseStockReport,
+  };
+  const handler = handlers[req.params.name];
+  if (!handler) return error(res, 'Unknown report', 404);
+  let payload;
+  const collector = { status() { return this; }, json(body) { payload = body; return body; } };
+  try {
+    handler(req, collector);
+    if (!payload?.success) return error(res, payload?.message || 'Could not create report', 500);
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const from = req.query.from_date || req.query.as_of || 'all';
+    const result = await saveReportPdf({
+      name: `${req.params.name}-${from}-${req.query.to_date || ''}-${Date.now()}`,
+      title: `${req.params.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())} Report`,
+      subtitle: `Period: ${from}${req.query.to_date ? ` to ${req.query.to_date}` : ''}`,
+      data: payload.data,
+    });
+    return success(res, { fileName: result.fileName, folder: require('../config').exportDir }, 'PDF saved to system exports folder');
+  } catch (err) { return error(res, err.message, 500); }
+}
+module.exports.pdfExport = pdfExport;

@@ -329,3 +329,33 @@ function cancel(req, res) {
 }
 
 module.exports = { list, getById, create, cancel };
+
+/** Purchase bills, purchase orders and purchase returns are stored as PDFs too. */
+function pdfDocument(req, res) {
+  try {
+    const purchase = db.prepare(`SELECT p.*, s.name supplier_name, s.address supplier_address, s.gstin supplier_gstin
+      FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?`).get(req.params.id);
+    if (!purchase) return error(res, 'Purchase not found', 404);
+    const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id=?').all(purchase.id);
+    const company = db.prepare('SELECT * FROM company_settings WHERE id=1').get() || {};
+    const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+    const { mirrorDocumentPdf } = require('../utils/exportPdf');
+    const { doc, writeText, setBold, unicode } = createPdfDocument();
+    const money = (n) => pdfMoney(n, company.currency_symbol || '₹', unicode);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${purchase.bill_number}.pdf"`);
+    doc.pipe(res); mirrorDocumentPdf(doc, purchase.bill_number);
+    setBold(true); doc.fontSize(18); writeText(company.company_name || 'Inventory System');
+    doc.fontSize(16); writeText(purchase.bill_type === 'purchase_return' ? 'PURCHASE RETURN' : purchase.bill_type === 'purchase_order' ? 'PURCHASE ORDER' : 'PURCHASE BILL', { align: 'right' });
+    setBold(false); doc.fontSize(10); writeText(`No: ${purchase.bill_number}`, { align: 'right' }); writeText(`Date: ${purchase.bill_date}`, { align: 'right' });
+    doc.moveDown(); setBold(true); writeText('Supplier:'); setBold(false); writeText(purchase.supplier_name || '—');
+    if (purchase.supplier_address) writeText(purchase.supplier_address); if (purchase.supplier_gstin) writeText(`GSTIN: ${purchase.supplier_gstin}`);
+    doc.moveDown(); let y = doc.y; setBold(true); ['#', 'Item', 'Qty', 'Rate', 'Tax', 'Total'].forEach((h, i) => writeText(h, { x: [50, 80, 270, 325, 390, 450][i], y, width: [25, 180, 50, 60, 55, 85][i], align: i === 5 ? 'right' : 'left' }));
+    setBold(false); y += 20;
+    items.forEach((item, i) => { if (y > 720) { doc.addPage(); y = 50; } writeText(String(i + 1), { x: 50, y, width: 25 }); writeText(item.product_name, { x: 80, y, width: 180 }); writeText(String(item.quantity), { x: 270, y, width: 50 }); writeText(Number(item.unit_price).toFixed(2), { x: 325, y, width: 60 }); writeText(Number(item.tax_amount).toFixed(2), { x: 390, y, width: 55 }); writeText(Number(item.total).toFixed(2), { x: 450, y, width: 85, align: 'right' }); y += 18; });
+    y += 10; setBold(true); doc.fontSize(12); writeText(`Grand Total: ${money(purchase.grand_total)}`, { x: 320, y, width: 215, align: 'right' }); setBold(false);
+    if (purchase.notes) { y += 28; doc.fontSize(10); writeText(`Notes: ${purchase.notes}`, { x: 50, y, width: 480 }); }
+    doc.end();
+  } catch (err) { if (!res.headersSent) return error(res, err.message, 500); res.end(); }
+}
+module.exports.pdfDocument = pdfDocument;

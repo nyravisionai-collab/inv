@@ -45,6 +45,7 @@ router.post('/sales', auditLog('create', 'sale'), sales.create);
 router.put('/sales/:id', sales.update);
 router.post('/sales/:id/cancel', auditLog('cancel', 'sale'), sales.cancel);
 router.post('/sales/:id/convert', sales.convert);
+router.post('/sales/:id/delivery-challan', sales.createPartialChallan);
 
 router.get('/estimates', (req, res) => { req.query.type = 'estimate'; sales.list(req, res); });
 router.get('/sale-orders', (req, res) => { req.query.type = 'sale_order'; sales.list(req, res); });
@@ -55,6 +56,7 @@ router.get('/pos', (req, res) => { req.query.type = 'pos'; sales.list(req, res);
 // Purchases
 router.get('/purchases', purchases.list);
 router.get('/purchases/:id', purchases.getById);
+router.get('/purchases/:id/pdf', purchases.pdfDocument);
 router.post('/purchases', auditLog('create', 'purchase'), purchases.create);
 router.post('/purchases/:id/cancel', auditLog('cancel', 'purchase'), purchases.cancel);
 router.get('/purchase-orders', (req, res) => { req.query.type = 'purchase_order'; purchases.list(req, res); });
@@ -63,6 +65,7 @@ router.get('/purchase-returns', (req, res) => { req.query.type = 'purchase_retur
 // Payments
 router.get('/payments', payments.list);
 router.get('/payments/:id', payments.getById);
+router.post('/payments/:id/pdf', payments.pdfReceipt);
 router.post('/payments', auditLog('create', 'payment'), payments.create);
 router.delete('/payments/:id', payments.remove);
 
@@ -71,6 +74,7 @@ router.get('/customers', customers.list);
 router.get('/customers/outstanding', customers.outstanding);
 router.get('/customers/:id', customers.getById);
 router.get('/customers/:id/ledger', customers.ledger);
+router.post('/customers/:id/ledger/pdf', customers.pdfLedger);
 router.post('/customers', auditLog('create', 'customer'), customers.create);
 router.put('/customers/:id', customers.update);
 router.delete('/customers/:id', customers.remove);
@@ -80,6 +84,7 @@ router.get('/suppliers', suppliers.list);
 router.get('/suppliers/outstanding', suppliers.outstanding);
 router.get('/suppliers/:id', suppliers.getById);
 router.get('/suppliers/:id/ledger', suppliers.ledger);
+router.post('/suppliers/:id/ledger/pdf', suppliers.pdfLedger);
 router.post('/suppliers', auditLog('create', 'supplier'), suppliers.create);
 router.put('/suppliers/:id', suppliers.update);
 router.delete('/suppliers/:id', suppliers.remove);
@@ -117,14 +122,17 @@ router.put('/banks/:id', accounting.updateBank);
 router.get('/expenses', accounting.listExpenses);
 router.post('/expenses', accounting.createExpense);
 router.delete('/expenses/:id', accounting.deleteExpense);
+router.post('/expenses/:id/pdf', accounting.expensePdf);
 router.get('/incomes', accounting.listIncomes);
 router.post('/incomes', accounting.createIncome);
 router.get('/journals', accounting.listJournals);
 router.get('/journals/:id', accounting.getJournal);
 router.post('/journals', accounting.createJournal);
 router.get('/cash-book', accounting.cashBook);
+router.post('/cash-book/pdf', accounting.cashBookPdf);
 
 // Reports
+router.post('/reports/:name/pdf', reports.pdfExport);
 router.get('/reports/profit-loss', reports.profitLoss);
 router.get('/reports/balance-sheet', reports.balanceSheet);
 router.get('/reports/gst', reports.gstReport);
@@ -135,6 +143,11 @@ router.get('/reports/tax', reports.taxReport);
 router.get('/reports/customers', reports.customerReport);
 router.get('/reports/suppliers', reports.supplierReport);
 router.get('/reports/stock', inventory.stockReport);
+router.get('/reports/expiry', inventory.expiryReport);
+router.get('/reports/warehouse-stock', inventory.warehouseStockReport);
+router.get('/reports/outstanding', reports.outstandingReport);
+router.get('/reports/product-profit', reports.productProfitReport);
+router.get('/reports/customer-profit', reports.customerProfitReport);
 
 // Settings
 router.get('/settings', settings.getSettings);
@@ -147,6 +160,8 @@ router.post('/backup', settings.backup);
 router.get('/backups', settings.listBackups);
 router.post('/restore', settings.restore);
 router.get('/export', settings.exportData);
+router.post('/exports/:type/pdf', settings.exportPdf);
+router.get('/exports', settings.listExports);
 router.post('/import', upload.single('file'), settings.importData);
 
 // Users (local multi-user records — no login)

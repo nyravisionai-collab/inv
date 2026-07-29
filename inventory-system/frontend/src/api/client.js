@@ -59,6 +59,7 @@ export const salesAPI = {
   update: (id, data) => api.put(`/sales/${id}`, data),
   cancel: (id) => api.post(`/sales/${id}/cancel`),
   convert: (id, data) => api.post(`/sales/${id}/convert`, data),
+  createPartialChallan: (id, data) => api.post(`/sales/${id}/delivery-challan`, data),
   pdf: (id) => `/api/sales/${id}/pdf`,
   whatsapp: (id) => api.get(`/sales/${id}/whatsapp`),
   estimates: (params) => api.get('/estimates', { params }),
@@ -70,6 +71,7 @@ export const salesAPI = {
 export const purchasesAPI = {
   list: (params) => api.get('/purchases', { params }),
   get: (id) => api.get(`/purchases/${id}`),
+  pdf: (id) => `/api/purchases/${id}/pdf`,
   create: (data) => api.post('/purchases', data),
   cancel: (id) => api.post(`/purchases/${id}/cancel`),
   orders: (params) => api.get('/purchase-orders', { params }),
@@ -79,6 +81,7 @@ export const purchasesAPI = {
 export const paymentsAPI = {
   list: (params) => api.get('/payments', { params }),
   get: (id) => api.get(`/payments/${id}`),
+  pdf: (id) => api.post(`/payments/${id}/pdf`),
   create: (data) => api.post('/payments', data),
   remove: (id) => api.delete(`/payments/${id}`),
 };
@@ -90,6 +93,7 @@ export const customersAPI = {
   update: (id, data) => api.put(`/customers/${id}`, data),
   remove: (id) => api.delete(`/customers/${id}`),
   ledger: (id, params) => api.get(`/customers/${id}/ledger`, { params }),
+  ledgerPdf: (id, params) => api.post(`/customers/${id}/ledger/pdf`, null, { params }),
   outstanding: () => api.get('/customers/outstanding'),
 };
 
@@ -100,6 +104,7 @@ export const suppliersAPI = {
   update: (id, data) => api.put(`/suppliers/${id}`, data),
   remove: (id) => api.delete(`/suppliers/${id}`),
   ledger: (id, params) => api.get(`/suppliers/${id}/ledger`, { params }),
+  ledgerPdf: (id, params) => api.post(`/suppliers/${id}/ledger/pdf`, null, { params }),
   outstanding: () => api.get('/suppliers/outstanding'),
 };
 
@@ -133,12 +138,14 @@ export const accountingAPI = {
   expenses: (params) => api.get('/expenses', { params }),
   createExpense: (data) => api.post('/expenses', data),
   deleteExpense: (id) => api.delete(`/expenses/${id}`),
+  expensePdf: (id) => api.post(`/expenses/${id}/pdf`),
   incomes: (params) => api.get('/incomes', { params }),
   createIncome: (data) => api.post('/incomes', data),
   journals: () => api.get('/journals'),
   getJournal: (id) => api.get(`/journals/${id}`),
   createJournal: (data) => api.post('/journals', data),
   cashBook: (params) => api.get('/cash-book', { params }),
+  cashBookPdf: (params) => api.post('/cash-book/pdf', null, { params }),
 };
 
 export const reportsAPI = {
@@ -150,7 +157,13 @@ export const reportsAPI = {
   expenses: (params) => api.get('/reports/expenses', { params }),
   customers: () => api.get('/reports/customers'),
   suppliers: () => api.get('/reports/suppliers'),
+  outstanding: () => api.get('/reports/outstanding'),
+  productProfit: (params) => api.get('/reports/product-profit', { params }),
+  customerProfit: (params) => api.get('/reports/customer-profit', { params }),
+  pdf: (name, params) => api.post(`/reports/${name}/pdf`, null, { params }),
   stock: (params) => api.get('/reports/stock', { params }),
+  expiry: (params) => api.get('/reports/expiry', { params }),
+  warehouseStock: () => api.get('/reports/warehouse-stock'),
 };
 
 export const settingsAPI = {
@@ -164,6 +177,8 @@ export const settingsAPI = {
   backups: () => api.get('/backups'),
   restore: (data) => api.post('/restore', data),
   export: (params) => api.get('/export', { params, responseType: params?.format === 'json' ? 'json' : 'blob' }),
+  exportPdf: (type) => api.post(`/exports/${type}/pdf`),
+  exports: () => api.get('/exports'),
   import: (formData) => api.post('/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
 };
 

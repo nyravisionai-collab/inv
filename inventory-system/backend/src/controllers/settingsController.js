@@ -146,6 +146,41 @@ function backup(req, res) {
   }
 }
 
+
+function exportPdf(req, res) {
+  try {
+    const sources = {
+      products: ['Products', 'SELECT sku, name, current_stock, purchase_price, selling_price FROM products WHERE is_active=1 ORDER BY name'],
+      customers: ['Customers', 'SELECT name, phone, gstin, current_balance FROM customers WHERE is_active=1 ORDER BY name'],
+      suppliers: ['Suppliers', 'SELECT name, phone, gstin, current_balance FROM suppliers WHERE is_active=1 ORDER BY name'],
+      sales: ['Sales', "SELECT invoice_number, invoice_date, invoice_type, grand_total, paid_amount, balance_amount, status FROM sales ORDER BY id DESC"],
+      purchases: ['Purchases', "SELECT bill_number, bill_date, bill_type, grand_total, paid_amount, balance_amount, status FROM purchases ORDER BY id DESC"],
+      payments: ['Payments', 'SELECT payment_number, payment_date, payment_type, amount, payment_mode FROM payments ORDER BY id DESC'],
+      expenses: ['Expenses', 'SELECT expense_number, expense_date, category, amount, payment_mode FROM expenses ORDER BY id DESC'],
+      stock: ['Stock', 'SELECT sku, name, current_stock, purchase_price, selling_price FROM products WHERE is_active=1 ORDER BY name'],
+    };
+    const source = sources[req.params.type];
+    if (!source) return error(res, 'Unknown export type', 404);
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const rows = db.prepare(source[1]).all();
+    saveReportPdf({ name: `${req.params.type}-${Date.now()}`, title: `${source[0]} Export`, data: { rows } })
+      .then((file) => success(res, { fileName: file.fileName, folder: config.exportDir }, 'PDF saved to system exports folder'))
+      .catch((err) => error(res, err.message, 500));
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+function listExports(req, res) {
+  try {
+    const dir = path.resolve(config.exportDir);
+    if (!fs.existsSync(dir)) return success(res, []);
+    const files = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.pdf')).map((name) => {
+      const stat = fs.statSync(path.join(dir, name));
+      return { name, size: stat.size, created_at: stat.mtime.toISOString() };
+    }).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return success(res, files);
+  } catch (err) { return error(res, err.message, 500); }
+}
+
 function listBackups(req, res) {
   try {
     const backupDir = path.resolve(config.backupDir);
@@ -317,7 +352,7 @@ function importData(req, res) {
 }
 
 module.exports = {
-  getSettings, updateSettings, uploadLogo,
+  getSettings, updateSettings, uploadLogo, exportPdf, listExports,
   listTaxRates, createTaxRate, deleteTaxRate,
   backup, listBackups, restore, exportData, importData,
 };

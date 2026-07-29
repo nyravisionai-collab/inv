@@ -25,6 +25,7 @@ const NAV = [
       { to: '/sales', icon: ShoppingCart, label: 'Sale Invoices' },
       { to: '/estimates', icon: FileText, label: 'Estimates' },
       { to: '/sale-orders', icon: ClipboardList, label: 'Sale Orders' },
+      { to: '/delivery-challans', icon: Truck, label: 'Delivery Challans' },
       { to: '/sale-returns', icon: RotateCcw, label: 'Sale Returns' },
       { to: '/payments-in', icon: CreditCard, label: 'Payment In' },
     ],

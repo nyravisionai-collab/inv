@@ -11,6 +11,7 @@ export default function Settings() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [backups, setBackups] = useState([]);
+  const [pdfExports, setPdfExports] = useState([]);
   const [taxRates, setTaxRates] = useState([]);
   const [tab, setTab] = useState('company');
 
@@ -21,6 +22,7 @@ export default function Settings() {
   useEffect(() => {
     if (isAdmin) {
       settingsAPI.backups().then((r) => setBackups(r.data.data)).catch(() => {});
+      settingsAPI.exports().then((r) => setPdfExports(r.data.data)).catch(() => {});
     }
     settingsAPI.taxRates().then((r) => setTaxRates(r.data.data)).catch(() => {});
   }, [isAdmin]);
@@ -66,6 +68,14 @@ export default function Settings() {
     } catch {
       error(t('Export failed'));
     }
+  };
+
+  const doPdfExport = async (type) => {
+    try {
+      const r = await settingsAPI.exportPdf(type);
+      success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+      const files = await settingsAPI.exports(); setPdfExports(files.data.data);
+    } catch { error(t('PDF export failed')); }
   };
 
   const handleImport = async (e) => {
@@ -288,6 +298,7 @@ export default function Settings() {
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('products', 'xlsx')}><Download size={16} /> Products Excel</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('customers', 'csv')}><Download size={16} /> Customers CSV</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('sales', 'xlsx')}><Download size={16} /> Sales Excel</button>
+                  {['products', 'customers', 'suppliers', 'sales', 'purchases', 'payments', 'expenses', 'stock'].map((type) => <button key={type} className="btn btn-sm btn-secondary" onClick={() => doPdfExport(type)}><Download size={16} /> {type} PDF</button>)
                 </div>
                 <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer' }}>
                   <Upload size={16} /> Import Products
@@ -295,6 +306,10 @@ export default function Settings() {
                 </label>
               </div>
             </div>
+          </div>
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header"><div className="card-title">{t('PDF Export History')}</div></div>
+            {pdfExports.length === 0 ? <div className="empty-state"><p>{t('No PDF exports yet')}</p></div> : <div className="table-wrap"><table><thead><tr><th>{t('File')}</th><th>{t('Size')}</th><th>{t('Created')}</th></tr></thead><tbody>{pdfExports.map((file) => <tr key={file.name}><td>{file.name}</td><td>{(file.size / 1024).toFixed(1)} KB</td><td>{new Date(file.created_at).toLocaleString()}</td></tr>)}</tbody></table></div>}
           </div>
           <div className="card">
             <div className="card-header"><div className="card-title">{t('Backup History')}</div></div>

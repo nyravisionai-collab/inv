@@ -81,6 +81,13 @@ function PartyPage({ type }) {
     } catch { error(t('Failed to load ledger')); }
   };
 
+  const exportLedgerPdf = async () => {
+    const party = ledger?.customer || ledger?.supplier;
+    if (!party) return;
+    try { const r = await api.ledgerPdf(party.id); success(`${t('PDF saved')}: ${r.data.data.fileName}`); }
+    catch { error(t('PDF export failed')); }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -155,6 +162,7 @@ function PartyPage({ type }) {
       </Modal>
 
       <Modal open={!!ledger} onClose={() => setLedger(null)} title={`Ledger — ${ledger?.customer?.name || ledger?.supplier?.name || ''}`} size="lg">
+        {ledger && <button className="btn btn-sm btn-secondary" onClick={exportLedgerPdf}>{t('Export PDF')}</button>}
         {ledger && (
           <>
             <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>

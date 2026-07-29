@@ -1,4 +1,7 @@
 const db = require('../db/database');
+const fs = require('fs');
+const path = require('path');
+const config = require('../config');
 const { success, error, paginated } = require('../utils/response');
 const { now, today, calcLineTotal, calcInvoiceTotals, round2, sanitizeLike } = require('../utils/helpers');
 const numberService = require('../services/numberService');
@@ -10,6 +13,7 @@ const {
   oneOf, optionalDate, pageParams,
 } = require('../utils/validate');
 const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+const { mirrorDocumentPdf } = require('../utils/exportPdf');
 
 const SALE_TYPES = ['sale', 'estimate', 'sale_order', 'delivery_challan', 'sale_return', 'pos'];
 const SALE_STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'converted'];
@@ -180,12 +184,14 @@ function createSaleCore(body, userId) {
   const result = db.prepare(`
     INSERT INTO sales (
       invoice_number, invoice_type, customer_id, invoice_date, due_date, reference_number,
+      transporter_name, vehicle_number, lr_number, dispatch_address, eway_bill_number,
       status, payment_status, subtotal, discount_type, discount_value, discount_amount,
       tax_amount, shipping_charges, other_charges, round_off, grand_total, paid_amount,
       balance_amount, notes, terms, warehouse_id, created_by
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     invoiceNumber, invoiceType, body.customer_id || null, date, dueDate, body.reference_number || null,
+    body.transporter_name || null, body.vehicle_number || null, body.lr_number || null, body.dispatch_address || null, body.eway_bill_number || null,
     status, paymentStatus, totals.subtotal, money.discountType, money.discountValue, totals.discountAmount,
     totals.taxAmount, money.shippingCharges, money.otherCharges, money.roundOff,
     totals.grandTotal, paid, balance, body.notes || null, body.terms || null, wh || null, userId
@@ -364,6 +370,8 @@ function convert(req, res) {
       other_charges: sale.other_charges,
       notes: sale.notes,
       warehouse_id: sale.warehouse_id,
+      transporter_name: sale.transporter_name, vehicle_number: sale.vehicle_number, lr_number: sale.lr_number,
+      dispatch_address: sale.dispatch_address, eway_bill_number: sale.eway_bill_number,
       status: 'completed',
     };
 
@@ -380,6 +388,46 @@ function convert(req, res) {
   } catch (err) {
     return error(res, err.message, err.status || 500, null, err.code);
   }
+}
+
+/** Create a delivery challan for the requested portion of a sale order.
+ * Existing, active challans are counted so an order can never be over-delivered. */
+function createPartialChallan(req, res) {
+  try {
+    const order = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
+    if (!order || order.invoice_type !== 'sale_order') return error(res, 'Sale order not found', 404);
+    if (['cancelled', 'converted'].includes(order.status)) return error(res, 'This sale order cannot be delivered', 400);
+    const orderItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(order.id);
+    const requested = requireArray(req.body.items, 'Items');
+    const delivered = db.prepare(`SELECT si.product_id, si.product_name, COALESCE(SUM(si.quantity), 0) quantity
+      FROM sale_items si JOIN sales s ON s.id=si.sale_id
+      WHERE s.converted_from=? AND s.invoice_type='delivery_challan' AND s.status != 'cancelled'
+      GROUP BY si.product_id, si.product_name`).all(order.id);
+    const deliveredQty = new Map(delivered.map((i) => [`${i.product_id || ''}:${i.product_name}`, Number(i.quantity)]));
+    const sourceByKey = new Map(orderItems.map((i) => [`${i.product_id || ''}:${i.product_name}`, i]));
+    const items = requested.map((item) => {
+      const key = `${item.product_id || ''}:${item.product_name || item.name}`;
+      const source = sourceByKey.get(key);
+      if (!source) { const e = new Error('Item is not part of this sale order'); e.status = 400; throw e; }
+      const qty = Number(item.quantity);
+      const remaining = Number(source.quantity) - (deliveredQty.get(key) || 0);
+      if (!Number.isFinite(qty) || qty <= 0 || qty > remaining + 0.0001) { const e = new Error(`Delivery quantity exceeds remaining quantity for ${source.product_name}`); e.status = 400; throw e; }
+      return { product_id: source.product_id, product_name: source.product_name, hsn_code: source.hsn_code,
+        batch_id: source.batch_id, quantity: qty, unit_id: source.unit_id, unit_price: source.unit_price,
+        discount_type: source.discount_type, discount_value: source.discount_value, tax_rate: source.tax_rate, tax_type: source.tax_type };
+    });
+    const id = db.transaction(() => {
+      const challanId = createSaleCore({ invoice_type: 'delivery_challan', customer_id: order.customer_id,
+        invoice_date: req.body.invoice_date || today(), items, discount_type: order.discount_type,
+        discount_value: order.discount_value, shipping_charges: 0, other_charges: 0, notes: req.body.notes || order.notes,
+        warehouse_id: order.warehouse_id, status: 'completed', transporter_name: req.body.transporter_name,
+        vehicle_number: req.body.vehicle_number, lr_number: req.body.lr_number, dispatch_address: req.body.dispatch_address,
+        eway_bill_number: req.body.eway_bill_number }, req.user.id);
+      db.prepare('UPDATE sales SET converted_from=?, updated_at=? WHERE id=?').run(order.id, now(), challanId);
+      return challanId;
+    })();
+    return success(res, loadFullSale(id), 'Partial delivery challan created', 201);
+  } catch (err) { return error(res, err.message, err.status || 500); }
 }
 
 function formatCityStatePin(city, state, pincode) {
@@ -411,11 +459,19 @@ function pdfInvoice(req, res) {
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${sale.invoice_number}.pdf"`);
+    // Send it to the viewer and retain the same PDF under backend/exports/.
     doc.pipe(res);
+    mirrorDocumentPdf(doc, sale.invoice_number);
 
     setBold(true);
     doc.fontSize(20);
     const companyName = String(company.company_name || 'Electricalskart').trim();
+    // A logo uploaded in Settings is embedded in the exported PDF, so it also
+    // works when the file is shared outside this server.
+    const logoFile = company.logo_path ? path.join(config.uploadDir, String(company.logo_path).replace(/^\/uploads\//, '')) : null;
+    if (logoFile && fs.existsSync(logoFile)) {
+      try { doc.image(logoFile, 445, 45, { fit: [90, 55] }); } catch { /* unsupported image */ }
+    }
     writeText(companyName, { align: 'left' });
     setBold(false);
     doc.fontSize(10).fillColor('#666');
@@ -452,7 +508,9 @@ function pdfInvoice(req, res) {
     doc.moveDown();
     const heading = sale.invoice_type === 'sale_return'
       ? 'CREDIT NOTE'
-      : sale.invoice_type === 'estimate' ? 'ESTIMATE' : 'TAX INVOICE';
+      : sale.invoice_type === 'estimate' ? 'ESTIMATE'
+        : sale.invoice_type === 'sale_order' ? 'SALE ORDER'
+          : sale.invoice_type === 'delivery_challan' ? 'DELIVERY CHALLAN' : 'TAX INVOICE';
     setBold(true);
     doc.fontSize(16);
     writeText(heading, { align: 'right' });
@@ -460,6 +518,12 @@ function pdfInvoice(req, res) {
     doc.fontSize(10);
     writeText(`No: ${sale.invoice_number}`, { align: 'right' });
     writeText(`Date: ${sale.invoice_date}`, { align: 'right' });
+    if (sale.invoice_type === 'delivery_challan') {
+      if (sale.transporter_name) writeText(`Transporter: ${sale.transporter_name}`, { align: 'right' });
+      if (sale.vehicle_number) writeText(`Vehicle: ${sale.vehicle_number}`, { align: 'right' });
+      if (sale.lr_number) writeText(`LR No: ${sale.lr_number}`, { align: 'right' });
+      if (sale.eway_bill_number) writeText(`E-way Bill: ${sale.eway_bill_number}`, { align: 'right' });
+    }
 
     doc.moveDown();
     setBold(true);
@@ -477,6 +541,7 @@ function pdfInvoice(req, res) {
     if (customerPhone) writeText(`Phone: ${customerPhone}`);
     const customerGstin = String(sale.customer_gstin || '').trim();
     if (customerGstin) writeText(`GSTIN: ${customerGstin}`);
+    if (sale.invoice_type === 'delivery_challan' && sale.dispatch_address) writeText(`Dispatch From: ${sale.dispatch_address}`);
 
     doc.moveDown();
     const tableTop = doc.y;
@@ -533,6 +598,8 @@ function pdfInvoice(req, res) {
       writeText(`Terms: ${sale.terms || company.invoice_terms}`, { x: 50, y, width: 495 });
     }
 
+    y += 42;
+    setBold(true); writeText('Authorised Signatory', { x: 380, y, width: 165, align: 'right' }); setBold(false);
     doc.end();
   } catch (err) {
     if (!res.headersSent) return error(res, err.message, 500, null, err.code);
@@ -560,4 +627,4 @@ function whatsappLink(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, cancel, convert, pdfInvoice, whatsappLink };
+module.exports = { list, getById, create, update, cancel, convert, createPartialChallan, pdfInvoice, whatsappLink };
