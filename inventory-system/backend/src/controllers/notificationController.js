@@ -60,6 +60,21 @@ function checkAlerts(req, res) {
       }
     }
 
+    // Expiry alert: remaining batch stock that expires in the next 30 days.
+    const expiring = db.prepare(`SELECT pb.id, pb.batch_number, pb.expiry_date, p.name product_name
+      FROM product_batches pb JOIN products p ON p.id=pb.product_id
+      WHERE pb.quantity > 0 AND pb.expiry_date IS NOT NULL AND pb.expiry_date <= date(?, '+30 days')
+      ORDER BY pb.expiry_date`).all(today());
+    const expiryInsert = db.prepare(`INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+      VALUES (?, 'expiry', ?, ?, 'batch', ?)`);
+    for (const batch of expiring) {
+      for (const user of admins) {
+        const exists = db.prepare(`SELECT id FROM notifications WHERE user_id=? AND type='expiry' AND reference_id=? AND is_read=0
+          AND date(created_at)=date('now','localtime')`).get(user.id, batch.id);
+        if (!exists) expiryInsert.run(user.id, 'Expiry alert', `${batch.product_name} (batch ${batch.batch_number || '—'}) expires on ${batch.expiry_date}`, batch.id);
+      }
+    }
+
     // Due payments soon
     const dueSoon = db.prepare(`
       SELECT COUNT(*) as c FROM sales
@@ -70,6 +85,7 @@ function checkAlerts(req, res) {
       lowStockCount,
       overdueCount: overdue.length,
       dueSoonCount: dueSoon,
+      expiryCount: expiring.length,
     });
   } catch (err) {
     return error(res, err.message, 500);

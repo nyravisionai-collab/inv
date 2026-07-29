@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, XCircle } from 'lucide-react';
+import { Plus, Search, Eye, XCircle, Printer } from 'lucide-react';
 import { purchasesAPI, suppliersAPI, productsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -306,7 +306,7 @@ function PurchaseDetail() {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{data.bill_number}</h1><p className="page-subtitle">{data.bill_date} · {data.supplier_name}</p></div>
-        <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
+        <div style={{ display: 'flex', gap: 8 }}><a className="btn btn-secondary" href={purchasesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a><button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button></div>
       </div>
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div className="stat-card"><div><div className="stat-label">{t('Total')}</div><div className="stat-value">{formatMoney(data.grand_total)}</div></div></div>

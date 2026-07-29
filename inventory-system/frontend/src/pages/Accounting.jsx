@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Wallet } from 'lucide-react';
+import { Plus, Trash2, Wallet, FileText } from 'lucide-react';
 import { accountingAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -49,6 +49,8 @@ export function Expenses() {
     finally { setSaving(false); }
   };
 
+  const voucherPdf = async (id) => { try { const r = await accountingAPI.expensePdf(id); success(`${t('PDF saved')}: ${r.data.data.fileName}`); } catch { error(t('PDF export failed')); } };
+
   const remove = async (id) => {
     if (!(await confirm(t('Delete expense?')))) return;
     try { await accountingAPI.deleteExpense(id); success(t('Deleted')); load(pagination.page); }
@@ -76,7 +78,7 @@ export function Expenses() {
                       <td data-label={t('Category')}><span className="badge badge-warning">{t(e.category)}</span></td>
                       <td data-label={t('Description')}>{e.description || '—'}</td><td data-label={t('Mode')}>{t(e.payment_mode)}</td>
                       <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(e.amount)}</td>
-                      <td data-label={t('Actions')}><button className="btn-icon" onClick={() => remove(e.id)}><Trash2 size={16} /></button></td>
+                      <td data-label={t('Actions')}><button className="btn-icon" title="PDF" onClick={() => voucherPdf(e.id)}><FileText size={16} /></button><button className="btn-icon" onClick={() => remove(e.id)}><Trash2 size={16} /></button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -308,6 +310,9 @@ export function CashBook() {
   const [from, setFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; });
   const [to, setTo] = useState(today());
   const { formatMoney, t } = useAuth();
+  const { success, error } = useToast();
+
+  const exportCashBookPdf = async () => { try { const r = await accountingAPI.cashBookPdf({ from_date: from, to_date: to }); success(`${t('PDF saved')}: ${r.data.data.fileName}`); } catch { error(t('PDF export failed')); } };
 
   const load = () => {
     setLoading(true);
@@ -324,6 +329,7 @@ export function CashBook() {
           <span>to</span>
           <input className="form-control" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }} />
           <button className="btn btn-primary" onClick={load}>{t('Load')}</button>
+          <button className="btn btn-secondary" onClick={exportCashBookPdf}>{t('Export PDF')}</button>
         </div>
       </div>
       <div className="card">

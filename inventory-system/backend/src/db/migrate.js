@@ -8,6 +8,11 @@ const db = require('./database');
  */
 const ADDITIVE_COLUMNS = [
   ['company_settings', 'allow_negative_stock', 'INTEGER DEFAULT 0'],
+  ['sales', 'transporter_name', 'TEXT'],
+  ['sales', 'vehicle_number', 'TEXT'],
+  ['sales', 'lr_number', 'TEXT'],
+  ['sales', 'dispatch_address', 'TEXT'],
+  ['sales', 'eway_bill_number', 'TEXT'],
   ['sale_items', 'cost_price', 'REAL DEFAULT 0'],
   ['sale_items', 'invoice_discount_amount', 'REAL DEFAULT 0'],
   ['sale_items', 'tax_type', "TEXT DEFAULT 'exclusive'"],

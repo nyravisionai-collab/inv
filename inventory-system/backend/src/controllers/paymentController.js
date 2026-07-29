@@ -149,4 +149,20 @@ function remove(req, res) {
   }
 }
 
-module.exports = { list, getById, create, remove };
+
+async function pdfReceipt(req, res) {
+  try {
+    const payment = db.prepare(`SELECT p.*, ba.account_name bank_account_name,
+      CASE WHEN p.party_type='customer' THEN (SELECT name FROM customers WHERE id=p.party_id)
+           WHEN p.party_type='supplier' THEN (SELECT name FROM suppliers WHERE id=p.party_id) END party_name
+      FROM payments p LEFT JOIN bank_accounts ba ON ba.id=p.bank_account_id WHERE p.id=?`).get(req.params.id);
+    if (!payment) return error(res, 'Payment not found', 404);
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const file = await saveReportPdf({ name: `payment-receipt-${payment.payment_number}`, title: payment.payment_type === 'payment_in' ? 'PAYMENT RECEIPT' : 'PAYMENT VOUCHER', data: {
+      receipt_number: payment.payment_number, date: payment.payment_date, party: payment.party_name || '—',
+      payment_mode: payment.payment_mode, bank_account: payment.bank_account_name || '—', reference: payment.reference_number || payment.cheque_number || '—', amount: payment.amount, notes: payment.notes || '—' } });
+    return success(res, { fileName: file.fileName, folder: require('../config').exportDir }, 'Payment PDF saved to system exports folder');
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+module.exports = { list, getById, create, remove, pdfReceipt };

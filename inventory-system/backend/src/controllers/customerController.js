@@ -159,4 +159,19 @@ function outstanding(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, remove, ledger, outstanding };
+
+async function pdfLedger(req, res) {
+  let payload;
+  const collector = { status() { return this; }, json(body) { payload = body; return body; } };
+  try {
+    ledger(req, collector);
+    if (!payload?.success) return error(res, payload?.message || 'Customer ledger not found', 404);
+    const data = payload.data;
+    const { saveReportPdf } = require('../utils/exportPdf');
+    const party = data.customer;
+    const file = await saveReportPdf({ name: `customer-ledger-${party.id}-${Date.now()}`, title: `Customer Ledger — ${party.name}`, data: { opening_balance: data.opening_balance, entries: data.entries, closing_balance: data.closing_balance } });
+    return success(res, { fileName: file.fileName, folder: require('../config').exportDir }, 'Ledger PDF saved to system exports folder');
+  } catch (err) { return error(res, err.message, 500); }
+}
+
+module.exports = { list, getById, create, update, remove, ledger, pdfLedger, outstanding };

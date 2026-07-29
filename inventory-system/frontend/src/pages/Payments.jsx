@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, FileText } from 'lucide-react';
 import { paymentsAPI, customersAPI, suppliersAPI, accountingAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -74,6 +74,8 @@ export default function Payments() {
     finally { setSaving(false); }
   };
 
+  const receiptPdf = async (id) => { try { const r = await paymentsAPI.pdf(id); success(`${t('PDF saved')}: ${r.data.data.fileName}`); } catch { error(t('PDF export failed')); } };
+
   const remove = async (id) => {
     if (!(await confirm(t('Delete this payment?')))) return;
     try { await paymentsAPI.remove(id); success(t('Deleted')); load(pagination.page); }
@@ -103,7 +105,7 @@ export default function Payments() {
                       <td data-label={t('Mode')}><span className="badge badge-info">{t(p.payment_mode)}</span></td>
                       <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(p.amount)}</td>
                       <td data-label={t('Notes')}>{p.notes || '—'}</td>
-                      <td data-label={t('Actions')}><button className="btn-icon" onClick={() => remove(p.id)}><Trash2 size={16} /></button></td>
+                      <td data-label={t('Actions')}><button className="btn-icon" title="PDF" onClick={() => receiptPdf(p.id)}><FileText size={16} /></button><button className="btn-icon" onClick={() => remove(p.id)}><Trash2 size={16} /></button></td>
                     </tr>
                   ))}
                 </tbody>

@@ -37,6 +37,8 @@ module.exports = {
   dbPath: process.env.DB_PATH || path.join(__dirname, '../../data/inventory.db'),
   uploadDir: process.env.UPLOAD_DIR || path.join(__dirname, '../../uploads'),
   backupDir: process.env.BACKUP_DIR || path.join(__dirname, '../../backups'),
+  // PDF exports are stored locally here; configurable for Termux/server installs.
+  exportDir: process.env.EXPORT_DIR || path.join(__dirname, '../../exports'),
   nodeEnv: process.env.NODE_ENV || 'production',
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '500', 10),
