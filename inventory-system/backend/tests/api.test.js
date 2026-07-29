@@ -908,4 +908,44 @@ describe('Inventory API (no-auth offline mode)', () => {
     assert.strictEqual(res.data.code, 'ERR_NOT_FOUND');
   });
 
+  it('generates a PDF invoice including full company and customer details', async () => {
+    const cust = await req('POST', '/customers', {
+      name: 'PDF Customer',
+      phone: '9876543210',
+      address: '123 Market Road',
+      city: 'Surat',
+      state: 'Gujarat',
+      pincode: '395006',
+      gstin: '24AAAAA0000A1Z5',
+    });
+    assert.strictEqual(cust.status, 201);
+    const prod = await req('POST', '/products', {
+      name: 'PDF Product',
+      sku: 'PDF-1',
+      selling_price: 500,
+      opening_stock: 10,
+    });
+    const sale = await req('POST', '/sales', {
+      invoice_type: 'sale',
+      customer_id: cust.data.data.id,
+      status: 'completed',
+      items: [{
+        product_id: prod.data.data.id,
+        product_name: 'PDF Product',
+        quantity: 1,
+        unit_price: 500,
+      }],
+      paid_amount: 500,
+    });
+    assert.strictEqual(sale.status, 201);
+    const saleId = sale.data.data.id;
+
+    const res = await fetch(`${baseUrl}/sales/${saleId}/pdf`);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('content-type'), 'application/pdf');
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.strictEqual(buf.slice(0, 5).toString(), '%PDF-');
+    assert.ok(buf.length > 5000, 'must contain embedded font and invoice content');
+  });
+
 });

@@ -73,7 +73,7 @@ function getById(req, res) {
     const sale = db.prepare(`
       SELECT s.*, c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
         c.address as customer_address, c.gstin as customer_gstin, c.city as customer_city,
-        c.state as customer_state, w.name as warehouse_name, u.full_name as created_by_name
+        c.state as customer_state, c.pincode as customer_pincode, w.name as warehouse_name, u.full_name as created_by_name
       FROM sales s
       LEFT JOIN customers c ON c.id = s.customer_id
       LEFT JOIN warehouses w ON w.id = s.warehouse_id
@@ -382,11 +382,20 @@ function convert(req, res) {
   }
 }
 
+function formatCityStatePin(city, state, pincode) {
+  const c = String(city || '').trim();
+  const s = String(state || '').trim();
+  const p = String(pincode || '').trim();
+  const place = [c, s].filter(Boolean).join(', ');
+  if (place && p) return `${place} - ${p}`;
+  return place || p || '';
+}
+
 function pdfInvoice(req, res) {
   try {
     const sale = db.prepare(`
       SELECT s.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
-        c.gstin as customer_gstin, c.city as customer_city, c.state as customer_state
+        c.gstin as customer_gstin, c.city as customer_city, c.state as customer_state, c.pincode as customer_pincode
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
     `).get(req.params.id);
     if (!sale) return error(res, 'Sale not found', 404, null, 'ERR_NOT_FOUND');
@@ -406,12 +415,38 @@ function pdfInvoice(req, res) {
 
     setBold(true);
     doc.fontSize(20);
-    writeText(company.company_name || 'Electricalskart', { align: 'left' });
+    const companyName = String(company.company_name || 'Electricalskart').trim();
+    writeText(companyName, { align: 'left' });
     setBold(false);
     doc.fontSize(10).fillColor('#666');
-    if (company.address) writeText(company.address);
-    if (company.phone) writeText(`Phone: ${company.phone}`);
-    if (company.gstin) writeText(`GSTIN: ${company.gstin}`);
+
+    const legalName = String(company.legal_name || '').trim();
+    if (legalName && legalName !== companyName) {
+      writeText(legalName);
+    }
+
+    const address = String(company.address || '').trim();
+    if (address) writeText(address);
+
+    const cityStatePin = formatCityStatePin(company.city, company.state, company.pincode);
+    if (cityStatePin) writeText(cityStatePin);
+
+    const contactParts = [];
+    const phone = String(company.phone || '').trim();
+    const email = String(company.email || '').trim();
+    if (phone) contactParts.push(`Ph: ${phone}`);
+    if (email) contactParts.push(email);
+    if (contactParts.length > 0) writeText(contactParts.join(' | '));
+
+    const gstin = String(company.gstin || '').trim();
+    if (gstin) writeText(`GSTIN: ${gstin}`);
+
+    const pan = String(company.pan || '').trim();
+    if (pan) writeText(`PAN: ${pan}`);
+
+    const website = String(company.website || '').trim();
+    if (website) writeText(`Website: ${website}`);
+
     doc.fillColor('#000');
 
     doc.moveDown();
@@ -432,10 +467,16 @@ function pdfInvoice(req, res) {
     writeText('Bill To:');
     setBold(false);
     doc.fontSize(10);
-    writeText(sale.customer_name || 'Walk-in Customer');
-    if (sale.customer_address) writeText(sale.customer_address);
-    if (sale.customer_phone) writeText(`Phone: ${sale.customer_phone}`);
-    if (sale.customer_gstin) writeText(`GSTIN: ${sale.customer_gstin}`);
+    const customerName = String(sale.customer_name || 'Walk-in Customer').trim();
+    writeText(customerName);
+    const customerAddress = String(sale.customer_address || '').trim();
+    if (customerAddress) writeText(customerAddress);
+    const custCityStatePin = formatCityStatePin(sale.customer_city, sale.customer_state, sale.customer_pincode);
+    if (custCityStatePin) writeText(custCityStatePin);
+    const customerPhone = String(sale.customer_phone || '').trim();
+    if (customerPhone) writeText(`Phone: ${customerPhone}`);
+    const customerGstin = String(sale.customer_gstin || '').trim();
+    if (customerGstin) writeText(`GSTIN: ${customerGstin}`);
 
     doc.moveDown();
     const tableTop = doc.y;
