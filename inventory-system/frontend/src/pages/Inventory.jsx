@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit, AlertTriangle, ArrowLeftRight, SlidersHorizontal, Tag } from 'lucide-react';
-import { inventoryAPI, productsAPI } from '../api/client';
+import { Plus, Trash2, Edit, AlertTriangle, ArrowLeftRight, SlidersHorizontal, Tag, Download } from 'lucide-react';
+import { inventoryAPI, productsAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -255,15 +255,50 @@ export function LowStock() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const { formatMoney, t } = useAuth();
+  const { success, error } = useToast();
 
   useEffect(() => {
     productsAPI.lowStock().then((r) => setItems(r.data.data)).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
+  const totalReorderQty = items.reduce((s, p) => s + Math.max(Number(p.reorder_level || p.min_stock * 2) - Number(p.current_stock), 0), 0);
+  const totalReorderCost = items.reduce((s, p) => s + Math.max(Number(p.reorder_level || p.min_stock * 2) - Number(p.current_stock), 0) * Number(p.purchase_price || 0), 0);
+
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">{t('Low Stock Alerts')}</h1><p className="page-subtitle">{items.length} products below minimum</p></div>
+        <div>
+          <h1 className="page-title">{t('Low Stock Alerts')}</h1>
+          <p className="page-subtitle">{items.length} products below minimum</p>
+        </div>
+        <button className="btn btn-secondary" onClick={async () => {
+          try {
+            const r = await settingsAPI.exportPdf('stock', { low_stock: 1 });
+            success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+          } catch { error(t('Export failed')); }
+        }}>
+          <Download size={18} /> {t('Export PDF')}
+        </button>
+      </div>
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 16 }}>
+        <div className="stat-card">
+          <div>
+            <div className="stat-label">{t('Low Stock Products')}</div>
+            <div className="stat-value">{items.length}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div>
+            <div className="stat-label">{t('Suggested Reorder Qty')}</div>
+            <div className="stat-value">{totalReorderQty}</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div>
+            <div className="stat-label">{t('Estimated Reorder Cost')}</div>
+            <div className="stat-value" style={{ fontSize: 18, color: 'var(--primary)' }}>{formatMoney(totalReorderCost)}</div>
+          </div>
+        </div>
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (
@@ -271,16 +306,31 @@ export function LowStock() {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>{t('Product')}</th><th>{t('Current Stock')}</th><th>{t('Min Stock')}</th><th>{t('Reorder Level')}</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>{t('Product')}</th>
+                  <th>{t('Current Stock')}</th>
+                  <th>{t('Min Stock')}</th>
+                  <th>{t('Suggested Reorder Qty')}</th>
+                  <th>{t('Purchase Price')}</th>
+                  <th>{t('Estimated Cost')}</th>
+                </tr>
+              </thead>
               <tbody>
-                {items.map((p) => (
-                  <tr key={p.id}>
-                    <td data-label={t('Product')} style={{ fontWeight: 500 }}>{p.name}</td>
-                    <td data-label={t('Current Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
-                    <td data-label={t('Min Stock')}>{p.min_stock}</td>
-                    <td data-label={t('Reorder Level')}>{p.reorder_level || p.min_stock}</td>
-                  </tr>
-                ))}
+                {items.map((p) => {
+                  const suggQty = Math.max(Number(p.reorder_level || p.min_stock * 2) - Number(p.current_stock), 0);
+                  const suggCost = suggQty * Number(p.purchase_price || 0);
+                  return (
+                    <tr key={p.id}>
+                      <td data-label={t('Product')} style={{ fontWeight: 500 }}>{p.name}</td>
+                      <td data-label={t('Current Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
+                      <td data-label={t('Min Stock')}>{p.min_stock}</td>
+                      <td data-label={t('Suggested Reorder Qty')} style={{ fontWeight: 600, color: 'var(--primary)' }}>{suggQty}</td>
+                      <td data-label={t('Purchase Price')}>{formatMoney(p.purchase_price)}</td>
+                      <td data-label={t('Estimated Cost')} style={{ fontWeight: 600 }}>{formatMoney(suggCost)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -948,4 +948,47 @@ describe('Inventory API (no-auth offline mode)', () => {
     assert.ok(buf.length > 5000, 'must contain embedded font and invoice content');
   });
 
+  it('sends customer reminder and updates last_reminder_at', async () => {
+    const cust = await req('POST', '/customers', { name: 'Reminder Cust', phone: '9898989898' });
+    const id = cust.data.data.id;
+    const rem = await req('POST', `/customers/${id}/remind`);
+    assert.strictEqual(rem.status, 200);
+    assert.ok(rem.data.data.link.includes('wa.me'));
+    const after = await req('GET', `/customers/${id}`);
+    assert.ok(after.data.data.last_reminder_at);
+  });
+
+  it('sends supplier reminder and updates last_reminder_at', async () => {
+    const supp = await req('POST', '/suppliers', { name: 'Reminder Supp', phone: '9797979797' });
+    const id = supp.data.data.id;
+    const rem = await req('POST', `/suppliers/${id}/remind`);
+    assert.strictEqual(rem.status, 200);
+    assert.ok(rem.data.data.link.includes('wa.me'));
+    const after = await req('GET', `/suppliers/${id}`);
+    assert.ok(after.data.data.last_reminder_at);
+  });
+
+  it('generates barcode sticker PDF for selected products', async () => {
+    const prod = await req('POST', '/products', { name: 'Sticker Product', sku: 'STK-1', selling_price: 150 });
+    const id = prod.data.data.id;
+    const res = await fetch(`${baseUrl}/products/barcodes/stickers-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ product_id: id, quantity: 2 }], label_size: 'medium' }),
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('content-type'), 'application/pdf');
+    const buf = Buffer.from(await res.arrayBuffer());
+    assert.strictEqual(buf.slice(0, 5).toString(), '%PDF-');
+  });
+
+  it('exportPdf respects query filters and generates a filtered PDF', async () => {
+    await req('POST', '/products', { name: 'Filtered PDF Item', sku: 'FP-1', selling_price: 99 });
+    const res = await fetch(`${baseUrl}/exports/products/pdf?search=Filtered%20PDF`, { method: 'POST' });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.success, true);
+    assert.ok(data.data.fileName);
+  });
+
 });

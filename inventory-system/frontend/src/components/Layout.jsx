@@ -262,7 +262,11 @@ export default function Layout() {
                   {notifs.notifications?.slice(0, 10).map((n) => (
                     <div key={n.id} className="search-result-item" style={{ flexDirection: 'column', alignItems: 'flex-start', opacity: n.is_read ? 0.6 : 1 }}
                       onClick={() => { notificationsAPI.markRead(n.id); setNotifs((p) => ({ ...p, notifications: p.notifications.map((x) => x.id === n.id ? { ...x, is_read: 1 } : x), unread: Math.max(0, p.unread - 1) })); }}>
-                      <strong style={{ fontSize: 13 }}>{n.title}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {n.type === 'expiry' && <span className="badge badge-error" style={{ fontSize: 10, padding: '2px 6px' }}>EXPIRY</span>}
+                        {n.type === 'overdue' && <span className="badge badge-warning" style={{ fontSize: 10, padding: '2px 6px' }}>OVERDUE</span>}
+                        <strong style={{ fontSize: 13 }}>{n.title}</strong>
+                      </div>
                       <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{n.message}</span>
                     </div>
                   ))}

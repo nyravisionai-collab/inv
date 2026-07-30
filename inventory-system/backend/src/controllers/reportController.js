@@ -365,8 +365,13 @@ function supplierReport(req, res) {
 
 function outstandingReport(req, res) {
   try {
-    const customers = db.prepare(`SELECT name, phone, current_balance as outstanding FROM customers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
-    const suppliers = db.prepare(`SELECT name, phone, current_balance as payable FROM suppliers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    const customers = db.prepare(`SELECT id, name, phone, email, last_reminder_at, current_balance as outstanding FROM customers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    const suppliers = db.prepare(`SELECT id, name, phone, email, last_reminder_at, current_balance as payable, current_balance as outstanding FROM suppliers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    const openInvoicesStmt = db.prepare(`SELECT invoice_number, invoice_date, due_date, balance_amount FROM sales WHERE customer_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY invoice_date ASC LIMIT 5`);
+    for (const c of customers) c.pending_invoices = openInvoicesStmt.all(c.id);
+    const openBillsStmt = db.prepare(`SELECT bill_number, bill_date, due_date, balance_amount FROM purchases WHERE supplier_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY bill_date ASC LIMIT 5`);
+    for (const s of suppliers) s.pending_bills = openBillsStmt.all(s.id);
+
     return success(res, { customers, suppliers, customerOutstanding: customers.reduce((n, r) => n + Number(r.outstanding || 0), 0), supplierPayable: suppliers.reduce((n, r) => n + Number(r.payable || 0), 0) });
   } catch (err) { return error(res, err.message, 500); }
 }

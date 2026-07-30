@@ -302,6 +302,98 @@ async function generateAllBarcodes(req, res) {
   }
 }
 
+async function generateStickersPdf(req, res) {
+  try {
+    const { items = [], label_size = 'medium' } = req.body;
+    if (!Array.isArray(items) || !items.length) {
+      return error(res, 'Select at least one product for stickers', 400);
+    }
+
+    const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+    const { mirrorDocumentPdf } = require('../utils/exportPdf');
+    const company = db.prepare('SELECT currency_symbol FROM company_settings WHERE id = 1').get() || {};
+    const sym = company.currency_symbol || '₹';
+
+    const stickers = [];
+    for (const item of items) {
+      if (!item.product_id) continue;
+      const p = db.prepare('SELECT id, name, sku, barcode, selling_price FROM products WHERE id = ?').get(item.product_id);
+      if (!p) continue;
+      const qty = Math.max(1, Math.min(200, Number(item.quantity) || 1));
+      const code = p.barcode || p.sku || `P${p.id}`;
+      const qrDataUrl = await QRCode.toDataURL(code, { width: 120, margin: 1 });
+      const imgBuf = Buffer.from(qrDataUrl.replace(/^data:image\/png;base64,/, ''), 'base64');
+      for (let i = 0; i < qty; i++) {
+        stickers.push({ name: p.name, sku: p.sku || '', code, price: p.selling_price, imgBuf });
+      }
+    }
+    if (!stickers.length) return error(res, 'No valid stickers to generate', 400);
+
+    const { doc, writeText, setBold, unicode } = createPdfDocument({ margin: 25 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="barcode-stickers.pdf"`);
+    doc.pipe(res);
+    mirrorDocumentPdf(doc, 'barcode-stickers');
+
+    let cols = 3; let rows = 7; let colW = 180; let rowH = 110;
+    if (label_size === 'small') { cols = 4; rows = 8; colW = 135; rowH = 95; }
+    else if (label_size === 'large') { cols = 2; rows = 5; colW = 270; rowH = 155; }
+
+    const money = (n) => pdfMoney(n, sym, unicode);
+    const startX = 25; const startY = 25;
+    let col = 0; let row = 0;
+
+    for (let i = 0; i < stickers.length; i++) {
+      if (row >= rows) {
+        doc.addPage();
+        col = 0; row = 0;
+      }
+      const st = stickers[i];
+      const x = startX + col * colW;
+      const y = startY + row * rowH;
+
+      doc.rect(x + 2, y + 2, colW - 6, rowH - 6).lineWidth(0.5).stroke('#ccc');
+
+      const textX = x + 6;
+      setBold(true);
+      doc.fontSize(label_size === 'small' ? 8 : 10);
+      writeText(st.name.slice(0, label_size === 'small' ? 18 : 28), { x: textX, y: y + 8, width: colW - 12 });
+      setBold(false);
+      doc.fontSize(7).fillColor('#555');
+      if (st.sku) writeText(`SKU: ${st.sku}`, { x: textX, y: y + 22, width: colW - 12 });
+      doc.fillColor('#000');
+
+      const imgX = x + 8;
+      const imgY = y + (st.sku ? 32 : 24);
+      const imgSize = label_size === 'small' ? 45 : label_size === 'large' ? 70 : 55;
+      try {
+        doc.image(st.imgBuf, imgX, imgY, { width: imgSize, height: imgSize });
+      } catch { /* ignore */ }
+
+      const rightX = imgX + imgSize + 6;
+      const rightW = colW - (imgSize + 20);
+      setBold(true);
+      doc.fontSize(label_size === 'small' ? 9 : 12).fillColor('#00796b');
+      writeText(money(st.price), { x: rightX, y: imgY + 10, width: rightW });
+      doc.fillColor('#000');
+      setBold(false);
+      doc.fontSize(7);
+      writeText(st.code, { x: rightX, y: imgY + 28, width: rightW });
+
+      col++;
+      if (col >= cols) {
+        col = 0;
+        row++;
+      }
+    }
+
+    doc.end();
+  } catch (err) {
+    if (!res.headersSent) return error(res, err.message, 500);
+    res.end();
+  }
+}
+
 function lowStock(req, res) {
   try {
     return success(res, stockService.checkLowStock());
@@ -310,4 +402,4 @@ function lowStock(req, res) {
   }
 }
 
-module.exports = { list, getById, create, update, remove, getByBarcode, generateBarcode, generateAllBarcodes, lowStock };
+module.exports = { list, getById, create, update, remove, getByBarcode, generateBarcode, generateAllBarcodes, generateStickersPdf, lowStock };

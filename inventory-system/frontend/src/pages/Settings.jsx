@@ -98,6 +98,7 @@ export default function Settings() {
     { id: 'invoice', label: 'Invoice' },
     { id: 'tax', label: 'Tax' },
     { id: 'appearance', label: 'Appearance' },
+    { id: 'alerts', label: 'Alerts & Inventory' },
     ...(isAdmin ? [{ id: 'backup', label: 'Backup & Data' }] : []),
   ];
 
@@ -126,7 +127,8 @@ export default function Settings() {
       </div>
 
       {tab === 'company' && (
-        <div className="card">
+        <>
+          <div className="card" style={{ marginBottom: 20 }}>
           <div className="card-body">
             <div className="form-row">
               <div className="form-group">
@@ -180,6 +182,61 @@ export default function Settings() {
             </div>
           </div>
         </div>
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-header"><div className="card-title">{t('Company Logo')}</div></div>
+            <div className="card-body">
+              {form.logo_path ? (
+                <div style={{ marginBottom: 12 }}>
+                  <img src={form.logo_path} alt="Logo" style={{ maxHeight: 60, border: '1px solid var(--border)', padding: 4, borderRadius: 4 }} />
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>{t('No logo uploaded yet')}</p>
+              )}
+              <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer' }}>
+                <Upload size={16} /> {t('Upload Logo')}
+                <input type="file" accept="image/*" hidden onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  const fd = new FormData(); fd.append('logo', f);
+                  try { await settingsAPI.uploadLogo(fd); await refreshSettings(); success(t('Logo uploaded')); }
+                  catch { error(t('Upload failed')); }
+                  e.target.value = '';
+                }} />
+              </label>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header"><div className="card-title">{t('Digital Signature')}</div></div>
+            <div className="card-body">
+              {form.signature_path ? (
+                <div style={{ marginBottom: 12 }}>
+                  <img src={form.signature_path} alt="Signature" style={{ maxHeight: 60, border: '1px solid var(--border)', padding: 4, borderRadius: 4 }} />
+                  <div style={{ marginTop: 8 }}>
+                    <button className="btn btn-sm btn-outline" onClick={async () => {
+                      try { await settingsAPI.deleteSignature(); await refreshSettings(); success(t('Signature removed')); }
+                      catch { error(t('Failed')); }
+                    }}>{t('Remove Signature')}</button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>{t('No signature uploaded (only "Authorised Signatory" text is shown on PDFs)')}</p>
+              )}
+              <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer' }}>
+                <Upload size={16} /> {form.signature_path ? t('Replace Signature') : t('Upload Signature')}
+                <input type="file" accept="image/*" hidden onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  const fd = new FormData(); fd.append('signature', f);
+                  try { await settingsAPI.uploadSignature(fd); await refreshSettings(); success(t('Signature uploaded')); }
+                  catch { error(t('Upload failed')); }
+                  e.target.value = '';
+                }} />
+              </label>
+            </div>
+          </div>
+        </div>
+        </>
       )}
 
       {tab === 'invoice' && (
@@ -278,6 +335,30 @@ export default function Settings() {
         </div>
       )}
 
+      {tab === 'alerts' && (
+        <div className="card">
+          <div className="card-header"><div className="card-title">{t('Inventory & Low Stock Alerts')}</div></div>
+          <div className="card-body">
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">{t('Low Stock Alert Notifications')}</label>
+                <select className="form-control" value={form.low_stock_alert ? '1' : '0'} onChange={(e) => set('low_stock_alert', e.target.value === '1' ? 1 : 0)} disabled={!isAdmin}>
+                  <option value="1">{t('Enabled')}</option>
+                  <option value="0">{t('Disabled')}</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('Allow Negative Stock')}</label>
+                <select className="form-control" value={form.allow_negative_stock ? '1' : '0'} onChange={(e) => set('allow_negative_stock', e.target.value === '1' ? 1 : 0)} disabled={!isAdmin}>
+                  <option value="0">{t('No (Strict Stock Protection)')}</option>
+                  <option value="1">{t('Yes')}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'backup' && isAdmin && (
         <div>
           <div className="grid-2" style={{ marginBottom: 20 }}>
@@ -298,7 +379,7 @@ export default function Settings() {
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('products', 'xlsx')}><Download size={16} /> Products Excel</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('customers', 'csv')}><Download size={16} /> Customers CSV</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('sales', 'xlsx')}><Download size={16} /> Sales Excel</button>
-                  {['products', 'customers', 'suppliers', 'sales', 'purchases', 'payments', 'expenses', 'stock'].map((type) => <button key={type} className="btn btn-sm btn-secondary" onClick={() => doPdfExport(type)}><Download size={16} /> {type} PDF</button>)
+                  {['products', 'customers', 'suppliers', 'sales', 'purchases', 'payments', 'expenses', 'stock'].map((type) => <button key={type} className="btn btn-sm btn-secondary" onClick={() => doPdfExport(type)}><Download size={16} /> {type} PDF</button>)}
                 </div>
                 <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer' }}>
                   <Upload size={16} /> Import Products

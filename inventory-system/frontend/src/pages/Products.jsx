@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, QrCode, ImagePlus, X } from 'lucide-react';
-import { productsAPI, inventoryAPI } from '../api/client';
+import { Plus, Search, Edit, Trash2, QrCode, ImagePlus, X, Download } from 'lucide-react';
+import { productsAPI, inventoryAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -35,6 +35,9 @@ export default function Products() {
   const [qrModal, setQrModal] = useState(null);
   const [allBarcodesModal, setAllBarcodesModal] = useState(false);
   const [allBarcodesList, setAllBarcodesList] = useState([]);
+  const [stickerModal, setStickerModal] = useState(false);
+  const [stickerItems, setStickerItems] = useState({});
+  const [labelSize, setLabelSize] = useState('medium');
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const confirm = useConfirm();
@@ -156,6 +159,31 @@ export default function Products() {
     }
   };
 
+  const openStickerModal = () => {
+    const init = {};
+    items.forEach((p) => { init[p.id] = 1; });
+    setStickerItems(init);
+    setStickerModal(true);
+  };
+
+  const downloadStickerPdf = async () => {
+    const selected = Object.entries(stickerItems)
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([id, qty]) => ({ product_id: Number(id), quantity: Number(qty) }));
+    if (!selected.length) return error(t('Select at least one product'));
+    try {
+      const res = await productsAPI.barcodeStickersPdf({ items: selected, label_size: labelSize });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'barcode-stickers.pdf'; a.click();
+      success(t('Sticker PDF downloaded'));
+      setStickerModal(false);
+    } catch {
+      error(t('Failed to generate sticker PDF'));
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -164,6 +192,15 @@ export default function Products() {
           <p className="page-subtitle">{pagination.total} products</p>
         </div>
         <div className="page-actions">
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf('products', { search });
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-secondary" onClick={openStickerModal}><QrCode size={18} /> {t('Sticker PDF')}</button>
           <button className="btn btn-secondary" onClick={openAllBarcodes}><QrCode size={18} /> {t('Print All Barcodes')}</button>
           <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> {t('Add Product')}</button>
         </div>
@@ -357,6 +394,57 @@ export default function Products() {
               <p className="barcode-price">{formatMoney(item.price)}</p>
             </div>
           ))}
+        </div>
+      </Modal>
+
+      <Modal open={stickerModal} onClose={() => setStickerModal(false)} title={t('Barcode Sticker PDF')} size="lg"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setStickerModal(false)}>{t('Cancel')}</button>
+            <button className="btn btn-primary" onClick={downloadStickerPdf}><Download size={18} /> {t('Download Sticker PDF')}</button>
+          </>
+        }
+      >
+        <div className="form-group" style={{ marginBottom: 16 }}>
+          <label className="form-label">{t('Label Size')}</label>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[
+              { id: 'small', label: `${t('Small')} (32 / page)` },
+              { id: 'medium', label: `${t('Medium')} (21 / page)` },
+              { id: 'large', label: `${t('Large')} (10 / page)` },
+            ].map((s) => (
+              <button key={s.id} type="button" className={`btn btn-sm ${labelSize === s.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setLabelSize(s.id)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="table-wrap" style={{ maxHeight: 350, overflowY: 'auto' }}>
+          <table>
+            <thead>
+              <tr><th>{t('Product')}</th><th>{t('SKU')}</th><th>{t('Price')}</th><th style={{ width: 120 }}>{t('Stickers Qty')}</th></tr>
+            </thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ fontWeight: 500 }}>{p.name}</td>
+                  <td>{p.sku || '—'}</td>
+                  <td>{formatMoney(p.selling_price)}</td>
+                  <td>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={stickerItems[p.id] ?? 0}
+                      onChange={(e) => setStickerItems({ ...stickerItems, [p.id]: e.target.value })}
+                      style={{ height: 32 }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Modal>
     </div>

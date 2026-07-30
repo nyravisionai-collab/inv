@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Plus, Trash2, FileText } from 'lucide-react';
-import { paymentsAPI, customersAPI, suppliersAPI, accountingAPI } from '../api/client';
+import { Plus, Trash2, FileText, Download } from 'lucide-react';
+import { paymentsAPI, customersAPI, suppliersAPI, accountingAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -86,7 +86,17 @@ export default function Payments() {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{t(title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
-        <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> {t('Record Payment')}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf('payments', { type });
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> {t('Record Payment')}</button>
+        </div>
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (

@@ -338,7 +338,7 @@ function pdfDocument(req, res) {
     if (!purchase) return error(res, 'Purchase not found', 404);
     const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id=?').all(purchase.id);
     const company = db.prepare('SELECT * FROM company_settings WHERE id=1').get() || {};
-    const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+    const { createPdfDocument, pdfMoney, renderSignature } = require('../utils/pdf');
     const { mirrorDocumentPdf } = require('../utils/exportPdf');
     const { doc, writeText, setBold, unicode } = createPdfDocument();
     const money = (n) => pdfMoney(n, company.currency_symbol || '₹', unicode);
@@ -355,6 +355,8 @@ function pdfDocument(req, res) {
     items.forEach((item, i) => { if (y > 720) { doc.addPage(); y = 50; } writeText(String(i + 1), { x: 50, y, width: 25 }); writeText(item.product_name, { x: 80, y, width: 180 }); writeText(String(item.quantity), { x: 270, y, width: 50 }); writeText(Number(item.unit_price).toFixed(2), { x: 325, y, width: 60 }); writeText(Number(item.tax_amount).toFixed(2), { x: 390, y, width: 55 }); writeText(Number(item.total).toFixed(2), { x: 450, y, width: 85, align: 'right' }); y += 18; });
     y += 10; setBold(true); doc.fontSize(12); writeText(`Grand Total: ${money(purchase.grand_total)}`, { x: 320, y, width: 215, align: 'right' }); setBold(false);
     if (purchase.notes) { y += 28; doc.fontSize(10); writeText(`Notes: ${purchase.notes}`, { x: 50, y, width: 480 }); }
+    y += 35;
+    renderSignature(doc, writeText, setBold, company, y);
     doc.end();
   } catch (err) { if (!res.headersSent) return error(res, err.message, 500); res.end(); }
 }

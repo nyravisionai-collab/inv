@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, XCircle, Printer } from 'lucide-react';
-import { purchasesAPI, suppliersAPI, productsAPI } from '../api/client';
+import { Plus, Search, Eye, XCircle, Printer, Download } from 'lucide-react';
+import { purchasesAPI, suppliersAPI, productsAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -57,7 +57,17 @@ function PurchaseList() {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{t(cfg.title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
-        <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}><Plus size={18} /> {t(cfg.createLabel)}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf('purchases', { search, type: cfg.type });
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}><Plus size={18} /> {t(cfg.createLabel)}</button>
+        </div>
       </div>
       <div className="card">
         <div className="card-header">

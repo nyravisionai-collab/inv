@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   gstin TEXT,
   pan TEXT,
   logo_path TEXT,
+  signature_path TEXT,
   currency TEXT DEFAULT 'INR',
   currency_symbol TEXT DEFAULT '₹',
   fiscal_year_start TEXT DEFAULT '04-01',
@@ -216,6 +217,7 @@ CREATE TABLE IF NOT EXISTS customers (
   balance_type TEXT DEFAULT 'debit' CHECK(balance_type IN ('debit','credit')),
   current_balance REAL DEFAULT 0,
   notes TEXT,
+  last_reminder_at TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -236,6 +238,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
   balance_type TEXT DEFAULT 'credit' CHECK(balance_type IN ('debit','credit')),
   current_balance REAL DEFAULT 0,
   notes TEXT,
+  last_reminder_at TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))

@@ -8,6 +8,9 @@ const db = require('./database');
  */
 const ADDITIVE_COLUMNS = [
   ['company_settings', 'allow_negative_stock', 'INTEGER DEFAULT 0'],
+  ['company_settings', 'signature_path', 'TEXT'],
+  ['customers', 'last_reminder_at', 'TEXT'],
+  ['suppliers', 'last_reminder_at', 'TEXT'],
   ['sales', 'transporter_name', 'TEXT'],
   ['sales', 'vehicle_number', 'TEXT'],
   ['sales', 'lr_number', 'TEXT'],

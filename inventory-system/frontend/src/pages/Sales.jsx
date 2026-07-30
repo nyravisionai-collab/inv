@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2 } from 'lucide-react';
-import { salesAPI, customersAPI, productsAPI, inventoryAPI } from '../api/client';
+import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2, Download } from 'lucide-react';
+import { salesAPI, customersAPI, productsAPI, inventoryAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -10,6 +10,7 @@ import { withRowId } from '../utils/rowId';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
+import Modal from '../components/Modal';
 
 const TYPE_MAP = {
   // A POS bill is a sale, so the invoice list covers both and the counter
@@ -71,9 +72,19 @@ function SalesList() {
           <h1 className="page-title">{t(cfg.title)}</h1>
           <p className="page-subtitle">{pagination.total} {t('records')}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>
-          <Plus size={18} /> {t(cfg.createLabel)}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf('sales', { search, type: cfg.type });
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-primary" onClick={() => navigate(`${location.pathname}/new`)}>
+            <Plus size={18} /> {t(cfg.createLabel)}
+          </button>
+        </div>
       </div>
       <div className="card">
         <div className="card-header">
@@ -446,6 +457,8 @@ function SaleDetail() {
   const { id } = useParams();
   const [sale, setSale] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [challanModal, setChallanModal] = useState(false);
+  const [challanItems, setChallanItems] = useState([]);
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const navigate = useNavigate();
@@ -454,22 +467,42 @@ function SaleDetail() {
     salesAPI.get(id).then((r) => setSale(r.data.data)).catch(() => error(t('Not found'))).finally(() => setLoading(false));
   }, [id]);
 
-  const createPartialChallan = async () => {
-    // Each order line is prompted separately, allowing zero to skip it and a
-    // smaller number to make a genuinely partial delivery.
-    const items = [];
-    for (const item of sale.items || []) {
-      const entered = window.prompt(`${t('Quantity to deliver')} — ${item.product_name} (ordered: ${item.quantity})`, String(item.quantity));
-      if (entered === null) return;
-      const quantity = Number(entered);
-      if (quantity > 0) items.push({ product_id: item.product_id, product_name: item.product_name, quantity });
-    }
+  const openChallanModal = () => {
+    setChallanItems(
+      (sale.items || []).map((item) => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        ordered_quantity: Number(item.quantity) || 0,
+        delivered_quantity: Number(item.delivered_quantity) || 0,
+        remaining_quantity: Number(item.remaining_quantity) || 0,
+        deliver_qty: Number(item.remaining_quantity) || 0,
+      }))
+    );
+    setChallanModal(true);
+  };
+
+  const submitPartialChallan = async () => {
+    const items = challanItems
+      .filter((i) => Number(i.deliver_qty) > 0)
+      .map((i) => ({
+        product_id: i.product_id,
+        product_name: i.product_name,
+        quantity: Number(i.deliver_qty),
+      }));
     if (!items.length) return error(t('Enter at least one delivery quantity'));
+    for (const i of challanItems) {
+      if (Number(i.deliver_qty) < 0 || Number(i.deliver_qty) > Number(i.remaining_quantity) + 0.0001) {
+        return error(`${t('Delivery quantity exceeds remaining quantity for')} ${i.product_name}`);
+      }
+    }
     try {
       const r = await salesAPI.createPartialChallan(id, { items });
       success(t('Delivery Challan created'));
+      setChallanModal(false);
       navigate(`/sales/${r.data.data.id}`);
-    } catch (err) { error(err.response?.data?.message || t('Could not create delivery challan')); }
+    } catch (err) {
+      error(err.response?.data?.message || t('Could not create delivery challan'));
+    }
   };
 
   const convertChallanToInvoice = async () => {
@@ -517,7 +550,7 @@ function SaleDetail() {
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
           <a className="btn btn-secondary" href={salesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a>
-          {sale.invoice_type === 'sale_order' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={createPartialChallan}>{t('Create Delivery Challan')}</button>}
+          {sale.invoice_type === 'sale_order' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={openChallanModal}>{t('Create Delivery Challan')}</button>}
           {sale.invoice_type === 'delivery_challan' && sale.status !== 'converted' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={convertChallanToInvoice}>{t('Convert to Invoice')}</button>}
           <button className="btn btn-success" onClick={sharePdf}><Share2 size={18} /> {t('Share PDF')}</button>
           <button className="btn btn-success" onClick={sendWhatsApp}><MessageCircle size={18} /> WhatsApp</button>
@@ -588,6 +621,38 @@ function SaleDetail() {
         </div>
       </div>
 
+      {sale.invoice_type === 'sale_order' && sale.challan_history?.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header"><div className="card-title">{t('Delivery Challans History')}</div></div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('Number')}</th>
+                  <th>{t('Date')}</th>
+                  <th>{t('Status')}</th>
+                  <th>{t('Total')}</th>
+                  <th>{t('Actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sale.challan_history.map((ch) => (
+                  <tr key={ch.id}>
+                    <td data-label={t('Number')} style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/sales/${ch.id}`)}>{ch.invoice_number}</td>
+                    <td data-label={t('Date')}>{ch.invoice_date}</td>
+                    <td data-label={t('Status')}><span className="badge badge-success">{t(ch.status)}</span></td>
+                    <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(ch.grand_total)}</td>
+                    <td data-label={t('Actions')}>
+                      <button className="btn-icon" onClick={() => navigate(`/sales/${ch.id}`)}><Eye size={16} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {sale.payments?.length > 0 && (
         <div className="card">
           <div className="card-header"><div className="card-title">{t('Payments')}</div></div>
@@ -608,6 +673,60 @@ function SaleDetail() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={challanModal}
+        onClose={() => setChallanModal(false)}
+        title={t('Create Delivery Challan')}
+        size="lg"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setChallanModal(false)}>{t('Cancel')}</button>
+            <button className="btn btn-primary" onClick={submitPartialChallan}>{t('Create Challan')}</button>
+          </>
+        }
+      >
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t('Product')}</th>
+                <th>{t('Ordered')}</th>
+                <th>{t('Delivered')}</th>
+                <th>{t('Remaining')}</th>
+                <th style={{ width: 120 }}>{t('Deliver Qty')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {challanItems.map((item, idx) => (
+                <tr key={idx}>
+                  <td style={{ fontWeight: 500 }}>{item.product_name}</td>
+                  <td>{item.ordered_quantity}</td>
+                  <td>{item.delivered_quantity}</td>
+                  <td>{item.remaining_quantity}</td>
+                  <td>
+                    <input
+                      className="form-control"
+                      type="number"
+                      min="0"
+                      max={item.remaining_quantity}
+                      value={item.deliver_qty}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setChallanItems((prev) => prev.map((it, i) => i === idx ? { ...it, deliver_qty: val } : it));
+                      }}
+                      style={{ height: 32 }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 12, padding: 8, background: 'var(--bg-secondary)', borderRadius: 6, fontSize: 13 }}>
+          <strong>{t('Preview')}:</strong> {challanItems.filter((i) => Number(i.deliver_qty) > 0).length} {t('items selected for delivery')}
+        </div>
+      </Modal>
     </div>
   );
 }

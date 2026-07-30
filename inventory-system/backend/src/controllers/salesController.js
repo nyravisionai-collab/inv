@@ -12,7 +12,7 @@ const {
   requireArray, validateLineItem, validateDocumentTotals,
   oneOf, optionalDate, pageParams,
 } = require('../utils/validate');
-const { createPdfDocument, pdfMoney } = require('../utils/pdf');
+const { createPdfDocument, pdfMoney, renderSignature } = require('../utils/pdf');
 const { mirrorDocumentPdf } = require('../utils/exportPdf');
 
 const SALE_TYPES = ['sale', 'estimate', 'sale_order', 'delivery_challan', 'sale_return', 'pos'];
@@ -95,6 +95,30 @@ function getById(req, res) {
     `).all(sale.id);
 
     sale.payments = db.prepare('SELECT * FROM payments WHERE sale_id = ? ORDER BY payment_date').all(sale.id);
+
+    if (sale.invoice_type === 'sale_order') {
+      const delivered = db.prepare(`SELECT si.product_id, si.product_name, COALESCE(SUM(si.quantity), 0) quantity
+        FROM sale_items si JOIN sales s ON s.id=si.sale_id
+        WHERE s.converted_from=? AND s.invoice_type='delivery_challan' AND s.status != 'cancelled'
+        GROUP BY si.product_id, si.product_name`).all(sale.id);
+      const deliveredQty = new Map(delivered.map((i) => [`${i.product_id || ''}:${i.product_name}`, Number(i.quantity)]));
+      for (const item of sale.items) {
+        const key = `${item.product_id || ''}:${item.product_name}`;
+        const del = deliveredQty.get(key) || 0;
+        item.delivered_quantity = del;
+        item.remaining_quantity = Math.max(0, Number(item.quantity) - del);
+      }
+      const challans = db.prepare(`
+        SELECT id, invoice_number, invoice_date, status, grand_total, created_at
+        FROM sales
+        WHERE converted_from = ? AND invoice_type = 'delivery_challan'
+        ORDER BY id DESC
+      `).all(sale.id);
+      for (const ch of challans) {
+        ch.items = db.prepare('SELECT product_id, product_name, quantity, unit_price, total FROM sale_items WHERE sale_id = ?').all(ch.id);
+      }
+      sale.challan_history = challans;
+    }
 
     return success(res, sale);
   } catch (err) {
@@ -599,7 +623,7 @@ function pdfInvoice(req, res) {
     }
 
     y += 42;
-    setBold(true); writeText('Authorised Signatory', { x: 380, y, width: 165, align: 'right' }); setBold(false);
+    renderSignature(doc, writeText, setBold, company, y);
     doc.end();
   } catch (err) {
     if (!res.headersSent) return error(res, err.message, 500, null, err.code);
