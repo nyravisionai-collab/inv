@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Wallet, FileText } from 'lucide-react';
-import { accountingAPI } from '../api/client';
+import { Plus, Trash2, Wallet, FileText, Download } from 'lucide-react';
+import { accountingAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';

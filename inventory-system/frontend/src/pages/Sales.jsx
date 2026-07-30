@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2, Download, Truck } from 'lucide-react';
+import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2, Download } from 'lucide-react';
 import { salesAPI, customersAPI, productsAPI, inventoryAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
