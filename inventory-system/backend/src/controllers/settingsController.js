@@ -61,6 +61,31 @@ function uploadLogo(req, res) {
   }
 }
 
+function uploadSignature(req, res) {
+  try {
+    if (!req.file) return error(res, 'No file uploaded');
+    const signaturePath = `/uploads/signatures/${req.file.filename}`;
+    db.prepare('UPDATE company_settings SET signature_path = ?, updated_at = ? WHERE id = 1').run(signaturePath, now());
+    return success(res, { signature_path: signaturePath }, 'Signature uploaded');
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
+function deleteSignature(req, res) {
+  try {
+    const existing = db.prepare('SELECT signature_path FROM company_settings WHERE id = 1').get();
+    if (existing && existing.signature_path) {
+      const p = path.join(config.uploadDir, String(existing.signature_path).replace(/^\/uploads\//, ''));
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ }
+    }
+    db.prepare('UPDATE company_settings SET signature_path = NULL, updated_at = ? WHERE id = 1').run(now());
+    return success(res, null, 'Signature removed');
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
 function listTaxRates(req, res) {
   try {
     return success(res, db.prepare('SELECT * FROM tax_rates WHERE is_active = 1 ORDER BY rate').all());
@@ -149,21 +174,100 @@ function backup(req, res) {
 
 function exportPdf(req, res) {
   try {
-    const sources = {
-      products: ['Products', 'SELECT sku, name, current_stock, purchase_price, selling_price FROM products WHERE is_active=1 ORDER BY name'],
-      customers: ['Customers', 'SELECT name, phone, gstin, current_balance FROM customers WHERE is_active=1 ORDER BY name'],
-      suppliers: ['Suppliers', 'SELECT name, phone, gstin, current_balance FROM suppliers WHERE is_active=1 ORDER BY name'],
-      sales: ['Sales', "SELECT invoice_number, invoice_date, invoice_type, grand_total, paid_amount, balance_amount, status FROM sales ORDER BY id DESC"],
-      purchases: ['Purchases', "SELECT bill_number, bill_date, bill_type, grand_total, paid_amount, balance_amount, status FROM purchases ORDER BY id DESC"],
-      payments: ['Payments', 'SELECT payment_number, payment_date, payment_type, amount, payment_mode FROM payments ORDER BY id DESC'],
-      expenses: ['Expenses', 'SELECT expense_number, expense_date, category, amount, payment_mode FROM expenses ORDER BY id DESC'],
-      stock: ['Stock', 'SELECT sku, name, current_stock, purchase_price, selling_price FROM products WHERE is_active=1 ORDER BY name'],
-    };
-    const source = sources[req.params.type];
-    if (!source) return error(res, 'Unknown export type', 404);
+    const { type } = req.params;
+    const q = { ...req.query, ...(req.body || {}) };
     const { saveReportPdf } = require('../utils/exportPdf');
-    const rows = db.prepare(source[1]).all();
-    saveReportPdf({ name: `${req.params.type}-${Date.now()}`, title: `${source[0]} Export`, data: { rows } })
+
+    let rows = [];
+    let title = `${type.toUpperCase()} EXPORT`;
+    let subtitle = '';
+    const filterParts = [];
+
+    if (type === 'products' || type === 'stock') {
+      let where = 'WHERE is_active=1';
+      const params = [];
+      if (q.category_id) { where += ' AND category_id = ?'; params.push(q.category_id); filterParts.push(`Category ID: ${q.category_id}`); }
+      if (q.brand_id) { where += ' AND brand_id = ?'; params.push(q.brand_id); filterParts.push(`Brand ID: ${q.brand_id}`); }
+      if (q.low_stock === '1') { where += ' AND current_stock <= min_stock AND min_stock > 0'; filterParts.push('Low Stock: Yes'); }
+      if (q.search) {
+        where += " AND (name LIKE ? ESCAPE '!' OR sku LIKE ? ESCAPE '!')";
+        const s = `%${q.search}%`; params.push(s, s); filterParts.push(`Search: "${q.search}"`);
+      }
+      rows = db.prepare(`SELECT sku, name, current_stock, purchase_price, selling_price FROM products ${where} ORDER BY name`).all(...params);
+      const totalQty = rows.reduce((acc, r) => acc + Number(r.current_stock || 0), 0);
+      const totalVal = rows.reduce((acc, r) => acc + (Number(r.current_stock || 0) * Number(r.purchase_price || 0)), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Items, Qty: ${totalQty}, Valuation: ₹${totalVal.toFixed(2)}`;
+    } else if (type === 'sales') {
+      let where = 'WHERE 1=1';
+      const params = [];
+      if (q.type) {
+        const types = String(q.type).split(',').map((x) => x.trim()).filter(Boolean);
+        if (types.length) { where += ` AND invoice_type IN (${types.map(() => '?').join(',')})`; params.push(...types); filterParts.push(`Type: ${types.join(',')}`); }
+      } else { where += " AND invoice_type IN ('sale','pos')"; }
+      if (q.status) { where += ' AND status = ?'; params.push(q.status); filterParts.push(`Status: ${q.status}`); }
+      if (q.payment_status) { where += ' AND payment_status = ?'; params.push(q.payment_status); filterParts.push(`Payment: ${q.payment_status}`); }
+      if (q.customer_id) { where += ' AND customer_id = ?'; params.push(q.customer_id); filterParts.push(`Customer ID: ${q.customer_id}`); }
+      if (q.from_date) { where += ' AND invoice_date >= ?'; params.push(q.from_date); filterParts.push(`From: ${q.from_date}`); }
+      if (q.to_date) { where += ' AND invoice_date <= ?'; params.push(q.to_date); filterParts.push(`To: ${q.to_date}`); }
+      rows = db.prepare(`SELECT invoice_number, invoice_date, invoice_type, grand_total, paid_amount, balance_amount, status FROM sales ${where} ORDER BY id DESC`).all(...params);
+      const totalAmt = rows.reduce((acc, r) => acc + Number(r.grand_total || 0), 0);
+      const totalPaid = rows.reduce((acc, r) => acc + Number(r.paid_amount || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Invoices, Amount: ₹${totalAmt.toFixed(2)}, Paid: ₹${totalPaid.toFixed(2)}`;
+    } else if (type === 'purchases') {
+      let where = 'WHERE 1=1';
+      const params = [];
+      if (q.type) { where += ' AND bill_type = ?'; params.push(q.type); filterParts.push(`Type: ${q.type}`); }
+      else { where += " AND bill_type = 'purchase'"; }
+      if (q.status) { where += ' AND status = ?'; params.push(q.status); filterParts.push(`Status: ${q.status}`); }
+      if (q.payment_status) { where += ' AND payment_status = ?'; params.push(q.payment_status); filterParts.push(`Payment: ${q.payment_status}`); }
+      if (q.supplier_id) { where += ' AND supplier_id = ?'; params.push(q.supplier_id); filterParts.push(`Supplier ID: ${q.supplier_id}`); }
+      if (q.from_date) { where += ' AND bill_date >= ?'; params.push(q.from_date); filterParts.push(`From: ${q.from_date}`); }
+      if (q.to_date) { where += ' AND bill_date <= ?'; params.push(q.to_date); filterParts.push(`To: ${q.to_date}`); }
+      rows = db.prepare(`SELECT bill_number, bill_date, bill_type, grand_total, paid_amount, balance_amount, status FROM purchases ${where} ORDER BY id DESC`).all(...params);
+      const totalAmt = rows.reduce((acc, r) => acc + Number(r.grand_total || 0), 0);
+      const totalPaid = rows.reduce((acc, r) => acc + Number(r.paid_amount || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Bills, Amount: ₹${totalAmt.toFixed(2)}, Paid: ₹${totalPaid.toFixed(2)}`;
+    } else if (type === 'payments') {
+      let where = 'WHERE 1=1';
+      const params = [];
+      if (q.type) { where += ' AND payment_type = ?'; params.push(q.type); filterParts.push(`Type: ${q.type}`); }
+      if (q.party_type) { where += ' AND party_type = ?'; params.push(q.party_type); filterParts.push(`Party Type: ${q.party_type}`); }
+      if (q.party_id) { where += ' AND party_id = ?'; params.push(q.party_id); filterParts.push(`Party ID: ${q.party_id}`); }
+      if (q.from_date) { where += ' AND payment_date >= ?'; params.push(q.from_date); filterParts.push(`From: ${q.from_date}`); }
+      if (q.to_date) { where += ' AND payment_date <= ?'; params.push(q.to_date); filterParts.push(`To: ${q.to_date}`); }
+      rows = db.prepare(`SELECT payment_number, payment_date, payment_type, amount, payment_mode FROM payments ${where} ORDER BY id DESC`).all(...params);
+      const totalAmt = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Payments, Amount: ₹${totalAmt.toFixed(2)}`;
+    } else if (type === 'expenses') {
+      let where = 'WHERE 1=1';
+      const params = [];
+      if (q.category) { where += ' AND category = ?'; params.push(q.category); filterParts.push(`Category: ${q.category}`); }
+      if (q.from_date) { where += ' AND expense_date >= ?'; params.push(q.from_date); filterParts.push(`From: ${q.from_date}`); }
+      if (q.to_date) { where += ' AND expense_date <= ?'; params.push(q.to_date); filterParts.push(`To: ${q.to_date}`); }
+      rows = db.prepare(`SELECT expense_number, expense_date, category, amount, payment_mode FROM expenses ${where} ORDER BY id DESC`).all(...params);
+      const totalAmt = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Expenses, Amount: ₹${totalAmt.toFixed(2)}`;
+    } else if (type === 'customers') {
+      let where = 'WHERE is_active=1';
+      const params = [];
+      if (q.outstanding === '1') { where += ' AND current_balance > 0'; filterParts.push('With Dues Only'); }
+      if (q.search) { where += " AND (name LIKE ? ESCAPE '!' OR phone LIKE ? ESCAPE '!')"; const s = `%${q.search}%`; params.push(s, s); filterParts.push(`Search: "${q.search}"`); }
+      rows = db.prepare(`SELECT name, phone, gstin, current_balance FROM customers ${where} ORDER BY name`).all(...params);
+      const totalBal = rows.reduce((acc, r) => acc + Number(r.current_balance || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Customers, Outstanding: ₹${totalBal.toFixed(2)}`;
+    } else if (type === 'suppliers') {
+      let where = 'WHERE is_active=1';
+      const params = [];
+      if (q.outstanding === '1') { where += ' AND current_balance > 0'; filterParts.push('With Dues Only'); }
+      if (q.search) { where += " AND (name LIKE ? ESCAPE '!' OR phone LIKE ? ESCAPE '!')"; const s = `%${q.search}%`; params.push(s, s); filterParts.push(`Search: "${q.search}"`); }
+      rows = db.prepare(`SELECT name, phone, gstin, current_balance FROM suppliers ${where} ORDER BY name`).all(...params);
+      const totalBal = rows.reduce((acc, r) => acc + Number(r.current_balance || 0), 0);
+      subtitle = `Applied Filters: ${filterParts.join(' | ') || 'None'} | Totals: ${rows.length} Suppliers, Payable: ₹${totalBal.toFixed(2)}`;
+    } else {
+      return error(res, 'Unknown export type', 404);
+    }
+
+    saveReportPdf({ name: `${type}-${Date.now()}`, title, subtitle, data: { rows } })
       .then((file) => success(res, { fileName: file.fileName, folder: config.exportDir }, 'PDF saved to system exports folder'))
       .catch((err) => error(res, err.message, 500));
   } catch (err) { return error(res, err.message, 500); }
@@ -352,7 +456,7 @@ function importData(req, res) {
 }
 
 module.exports = {
-  getSettings, updateSettings, uploadLogo, exportPdf, listExports,
+  getSettings, updateSettings, uploadLogo, uploadSignature, deleteSignature, exportPdf, listExports,
   listTaxRates, createTaxRate, deleteTaxRate,
   backup, listBackups, restore, exportData, importData,
 };

@@ -434,7 +434,7 @@ function stockReport(req, res) {
 function expiryReport(req, res) {
   try {
     const days = Math.max(1, Math.min(365, Number(req.query.days) || 90));
-    const rows = db.prepare(`SELECT pb.id, p.name product_name, p.sku, w.name warehouse_name, pb.batch_number, pb.expiry_date, pb.quantity, pb.purchase_price
+    const rows = db.prepare(`SELECT pb.id, pb.product_id, p.name product_name, p.sku, w.name warehouse_name, pb.batch_number, pb.expiry_date, pb.quantity, pb.purchase_price
       FROM product_batches pb JOIN products p ON p.id=pb.product_id LEFT JOIN warehouses w ON w.id=pb.warehouse_id
       WHERE pb.quantity > 0 AND pb.expiry_date IS NOT NULL AND pb.expiry_date <= date('now', '+' || ? || ' days')
       ORDER BY pb.expiry_date`).all(days);

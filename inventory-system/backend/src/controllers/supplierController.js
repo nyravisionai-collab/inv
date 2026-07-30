@@ -141,11 +141,56 @@ function ledger(req, res) {
 function outstanding(req, res) {
   try {
     const rows = db.prepare(`
-      SELECT s.*, s.current_balance as outstanding
+      SELECT s.*, s.current_balance as outstanding, s.current_balance as payable
       FROM suppliers s WHERE s.is_active = 1 AND s.current_balance > 0
       ORDER BY s.current_balance DESC
     `).all();
+    const openStmt = db.prepare(`
+      SELECT bill_number, bill_date, due_date, balance_amount
+      FROM purchases
+      WHERE supplier_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0
+      ORDER BY bill_date ASC LIMIT 5
+    `);
+    for (const r of rows) {
+      r.pending_bills = openStmt.all(r.id);
+    }
     return success(res, rows);
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
+function sendReminder(req, res) {
+  try {
+    const { id } = req.params;
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+    if (!supplier) return error(res, 'Supplier not found', 404);
+
+    const openBills = db.prepare(`
+      SELECT bill_number, bill_date, due_date, balance_amount
+      FROM purchases
+      WHERE supplier_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0
+      ORDER BY bill_date ASC LIMIT 5
+    `).all(id);
+
+    const company = db.prepare('SELECT company_name, currency_symbol FROM company_settings WHERE id = 1').get() || {};
+    const sym = company.currency_symbol || '₹';
+    const phone = (supplier.phone || '').replace(/\D/g, '');
+
+    let detailsStr = openBills.map((b) => `- ${b.bill_number} (${b.bill_date}): ${sym}${Number(b.balance_amount).toFixed(2)}`).join('\n');
+    if (!detailsStr) {
+      detailsStr = `- Payable Balance: ${sym}${Number(supplier.current_balance).toFixed(2)}`;
+    }
+
+    const msg = encodeURIComponent(
+      `*${company.company_name || 'Electricalskart'}*\nPayment Advice / Reminder for *${supplier.name}*\n\nPending Payable: ${sym}${Number(supplier.current_balance).toFixed(2)}\nPending Bills:\n${detailsStr}\n\nPlease find the details of outstanding bills. Thank you!`
+    );
+    const link = phone ? `https://wa.me/91${phone.slice(-10)}?text=${msg}` : `https://wa.me/?text=${msg}`;
+
+    const timestamp = now();
+    db.prepare('UPDATE suppliers SET last_reminder_at = ? WHERE id = ?').run(timestamp, id);
+
+    return success(res, { link, message: decodeURIComponent(msg), last_reminder_at: timestamp }, 'Reminder generated');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -166,4 +211,4 @@ async function pdfLedger(req, res) {
   } catch (err) { return error(res, err.message, 500); }
 }
 
-module.exports = { list, getById, create, update, remove, ledger, pdfLedger, outstanding };
+module.exports = { list, getById, create, update, remove, ledger, pdfLedger, outstanding, sendReminder };

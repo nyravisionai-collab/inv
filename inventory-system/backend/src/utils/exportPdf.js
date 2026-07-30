@@ -59,6 +59,16 @@ function saveReportPdf({ name, title, subtitle = '', data }) {
         doc.moveDown(0.5);
       } else addLine(key.replace(/_/g, ' '), item);
     });
+    try {
+      const db = require('../db/database');
+      const company = db.prepare('SELECT * FROM company_settings WHERE id = 1').get() || {};
+      const { renderSignature } = require('./pdf');
+      if (title && (title.includes('RECEIPT') || title.includes('VOUCHER') || title.includes('INVOICE') || title.includes('CHALLAN') || title.includes('LEDGER') || title.includes('Report') || title.includes('REPORT') || title.includes('Export') || title.includes('EXPORT'))) {
+        renderSignature(doc, writeText, setBold, company, doc.y + 25);
+      }
+    } catch {
+      /* ignore if db not ready */
+    }
     doc.end();
   });
 }

@@ -49,6 +49,7 @@ export const productsAPI = {
   barcode: (code) => api.get(`/products/barcode/${code}`),
   generateBarcode: (id) => api.get(`/products/${id}/barcode`),
   allBarcodes: () => api.get('/products/barcodes/all'),
+  barcodeStickersPdf: (data) => api.post('/products/barcodes/stickers-pdf', data, { responseType: 'blob' }),
   lowStock: () => api.get('/products/low-stock'),
 };
 
@@ -95,6 +96,7 @@ export const customersAPI = {
   ledger: (id, params) => api.get(`/customers/${id}/ledger`, { params }),
   ledgerPdf: (id, params) => api.post(`/customers/${id}/ledger/pdf`, null, { params }),
   outstanding: () => api.get('/customers/outstanding'),
+  remind: (id) => api.post(`/customers/${id}/remind`),
 };
 
 export const suppliersAPI = {
@@ -106,6 +108,7 @@ export const suppliersAPI = {
   ledger: (id, params) => api.get(`/suppliers/${id}/ledger`, { params }),
   ledgerPdf: (id, params) => api.post(`/suppliers/${id}/ledger/pdf`, null, { params }),
   outstanding: () => api.get('/suppliers/outstanding'),
+  remind: (id) => api.post(`/suppliers/${id}/remind`),
 };
 
 export const inventoryAPI = {
@@ -163,13 +166,15 @@ export const reportsAPI = {
   pdf: (name, params) => api.post(`/reports/${name}/pdf`, null, { params }),
   stock: (params) => api.get('/reports/stock', { params }),
   expiry: (params) => api.get('/reports/expiry', { params }),
-  warehouseStock: () => api.get('/reports/warehouse-stock'),
+  warehouseStock: (params) => api.get('/reports/warehouse-stock', { params }),
 };
 
 export const settingsAPI = {
   get: () => api.get('/settings'),
   update: (data) => api.put('/settings', data),
   uploadLogo: (formData) => api.post('/settings/logo', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadSignature: (formData) => api.post('/settings/signature', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  deleteSignature: () => api.delete('/settings/signature'),
   taxRates: () => api.get('/tax-rates'),
   createTaxRate: (data) => api.post('/tax-rates', data),
   deleteTaxRate: (id) => api.delete(`/tax-rates/${id}`),
@@ -177,7 +182,7 @@ export const settingsAPI = {
   backups: () => api.get('/backups'),
   restore: (data) => api.post('/restore', data),
   export: (params) => api.get('/export', { params, responseType: params?.format === 'json' ? 'json' : 'blob' }),
-  exportPdf: (type) => api.post(`/exports/${type}/pdf`),
+  exportPdf: (type, params) => api.post(`/exports/${type}/pdf`, null, { params }),
   exports: () => api.get('/exports'),
   import: (formData) => api.post('/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
 };

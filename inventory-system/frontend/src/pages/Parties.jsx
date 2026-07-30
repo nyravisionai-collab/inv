@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Search, Edit, Trash2, BookOpen, Users, Truck } from 'lucide-react';
-import { customersAPI, suppliersAPI } from '../api/client';
+import { Plus, Search, Edit, Trash2, BookOpen, Users, Truck, Download } from 'lucide-react';
+import { customersAPI, suppliersAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -92,7 +92,17 @@ function PartyPage({ type }) {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{t(title)}</h1><p className="page-subtitle">{pagination.total} {t('records')}</p></div>
-        <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> {t(isCustomer ? 'Add Customer' : 'Add Supplier')}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf(isCustomer ? 'customers' : 'suppliers', { search });
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-primary" onClick={openCreate}><Plus size={18} /> {t(isCustomer ? 'Add Customer' : 'Add Supplier')}</button>
+        </div>
       </div>
       <div className="card">
         <div className="card-header">

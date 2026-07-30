@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, FileText, Package, Users, Truck, Receipt, Download } from 'lucide-react';
-import { reportsAPI } from '../api/client';
+import { useNavigate } from 'react-router-dom';
+import { TrendingUp, FileText, Package, Users, Truck, Receipt, Download, MessageCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { reportsAPI, customersAPI, suppliersAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import Modal from '../components/Modal';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 function monthStart() {
@@ -35,6 +38,21 @@ export default function Reports() {
   const { formatMoney, t } = useAuth();
   const [exportMessage, setExportMessage] = useState('');
 
+  const [selectedCustomers, setSelectedCustomers] = useState({});
+  const [selectedSuppliers, setSelectedSuppliers] = useState({});
+  const [expiryDays, setExpiryDays] = useState(90);
+  const [expiredOnly, setExpiredOnly] = useState(false);
+  const [warehouseFilter, setWarehouseFilter] = useState('');
+  const [warehousesList, setWarehousesList] = useState([]);
+  const [adjustBatchModal, setAdjustBatchModal] = useState(null);
+  const [adjustReason, setAdjustReason] = useState('Expired stock write-off');
+  const { success, error } = useToast();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    inventoryAPI.warehouses().then((r) => setWarehousesList(r.data.data)).catch(() => {});
+  }, []);
+
   const exportPdf = async () => {
     if (!active) return;
     try {
@@ -64,7 +82,7 @@ export default function Reports() {
         case 'outstanding': res = await reportsAPI.outstanding(); break;
         case 'product-profit': res = await reportsAPI.productProfit(params); break;
         case 'customer-profit': res = await reportsAPI.customerProfit(params); break;
-        case 'expiry': res = await reportsAPI.expiry({ days: 90 }); break;
+        case 'expiry': res = await reportsAPI.expiry({ days: expiryDays }); break;
         case 'warehouse-stock': res = await reportsAPI.warehouseStock(); break;
         default: break;
       }
@@ -76,6 +94,78 @@ export default function Reports() {
   useEffect(() => {
     if (active) load(active);
   }, [from, to]);
+
+  useEffect(() => {
+    if (active === 'expiry') load('expiry');
+  }, [expiryDays]);
+
+  const handleCustomerRemind = async (id) => {
+    try {
+      const r = await customersAPI.remind(id);
+      window.open(r.data.data.link, '_blank');
+      load(active);
+    } catch {
+      error(t('Failed to send reminder'));
+    }
+  };
+
+  const handleSupplierRemind = async (id) => {
+    try {
+      const r = await suppliersAPI.remind(id);
+      window.open(r.data.data.link, '_blank');
+      load(active);
+    } catch {
+      error(t('Failed to send reminder'));
+    }
+  };
+
+  const handleBulkRemindCustomers = () => {
+    const ids = Object.entries(selectedCustomers).filter(([_, v]) => v).map(([id]) => id);
+    if (!ids.length) return error(t('Select at least one customer'));
+    ids.forEach((id, idx) => {
+      setTimeout(() => handleCustomerRemind(id), idx * 800);
+    });
+  };
+
+  const handleBulkRemindSuppliers = () => {
+    const ids = Object.entries(selectedSuppliers).filter(([_, v]) => v).map(([id]) => id);
+    if (!ids.length) return error(t('Select at least one supplier'));
+    ids.forEach((id, idx) => {
+      setTimeout(() => handleSupplierRemind(id), idx * 800);
+    });
+  };
+
+  const getExpiryBadge = (dateStr) => {
+    const now = new Date();
+    const exp = new Date(dateStr);
+    const diffDays = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return { label: 'Expired', clazz: 'badge-error' };
+    if (diffDays <= 7) return { label: `${diffDays} days left`, clazz: 'badge-error' };
+    if (diffDays <= 30) return { label: `${diffDays} days left`, clazz: 'badge-warning' };
+    if (diffDays <= 90) return { label: `${diffDays} days left`, clazz: 'badge-info' };
+    return { label: `${diffDays} days left`, clazz: 'badge-success' };
+  };
+
+  const handleAdjustExpiredStock = async () => {
+    if (!adjustBatchModal) return;
+    try {
+      await inventoryAPI.createAdjustment({
+        warehouse_id: '',
+        reason: adjustReason,
+        notes: `Expired batch write-off: ${adjustBatchModal.batch_number}`,
+        items: [{
+          product_id: adjustBatchModal.product_id,
+          batch_id: adjustBatchModal.id,
+          new_qty: 0,
+        }],
+      });
+      success(t('Stock adjusted to 0'));
+      setAdjustBatchModal(null);
+      load('expiry');
+    } catch {
+      error(t('Failed to adjust stock'));
+    }
+  };
 
   const renderReport = () => {
     if (loading) return <div className="spinner" />;
@@ -327,6 +417,425 @@ export default function Reports() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      );
+    }
+
+    if (active === 'outstanding') {
+      const custTotal = data.customerOutstanding || 0;
+      const suppTotal = data.supplierPayable || 0;
+      const netTotal = custTotal - suppTotal;
+
+      return (
+        <div>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card">
+              <div>
+                <div className="stat-label">{t('Total Receivable (Customers)')}</div>
+                <div className="stat-value" style={{ fontSize: 20, color: 'var(--success)' }}>{formatMoney(custTotal)}</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div>
+                <div className="stat-label">{t('Total Payable (Suppliers)')}</div>
+                <div className="stat-value" style={{ fontSize: 20, color: 'var(--error)' }}>{formatMoney(suppTotal)}</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div>
+                <div className="stat-label">{t('Net Balance')}</div>
+                <div className="stat-value" style={{ fontSize: 20, color: netTotal >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(netTotal)}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginBottom: 20 }}>
+            <div className="card-header">
+              <div className="card-title">{t('Customer Outstanding')}</div>
+              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindCustomers}>
+                <MessageCircle size={16} /> {t('Remind Selected Overdue Customers')}
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 40 }}><input type="checkbox" onChange={(e) => {
+                      const all = {};
+                      if (e.target.checked) (data.customers || []).forEach((c) => { all[c.id] = true; });
+                      setSelectedCustomers(all);
+                    }} /></th>
+                    <th>{t('Customer')}</th>
+                    <th>{t('Phone')}</th>
+                    <th>{t('Pending Invoices')}</th>
+                    <th>{t('Outstanding')}</th>
+                    <th>{t('Last Reminded')}</th>
+                    <th>{t('Action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.customers || []).length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No customer dues')}</td></tr>
+                  )}
+                  {(data.customers || []).map((c) => (
+                    <tr key={c.id}>
+                      <td><input type="checkbox" checked={!!selectedCustomers[c.id]} onChange={(e) => setSelectedCustomers({ ...selectedCustomers, [c.id]: e.target.checked })} /></td>
+                      <td style={{ fontWeight: 500 }}>{c.name}</td>
+                      <td>{c.phone || '—'}</td>
+                      <td>
+                        {(c.pending_invoices || []).length > 0 ? (
+                          <div style={{ fontSize: 12 }}>
+                            {c.pending_invoices.slice(0, 2).map((inv, idx) => (
+                              <div key={idx}>{inv.invoice_number} ({inv.invoice_date}): {formatMoney(inv.balance_amount)}</div>
+                            ))}
+                            {c.pending_invoices.length > 2 && <div style={{ color: 'var(--text-secondary)' }}>+{c.pending_invoices.length - 2} more</div>}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td style={{ fontWeight: 700, color: 'var(--error)' }}>{formatMoney(c.outstanding)}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{c.last_reminder_at ? new Date(c.last_reminder_at).toLocaleString() : t('Never')}</td>
+                      <td>
+                        <button className="btn btn-sm btn-success" onClick={() => handleCustomerRemind(c.id)} style={{ gap: 4 }}>
+                          <MessageCircle size={14} /> WhatsApp
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-title">{t('Supplier Payable')}</div>
+              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindSuppliers}>
+                <MessageCircle size={16} /> {t('Remind Selected Payable Suppliers')}
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 40 }}><input type="checkbox" onChange={(e) => {
+                      const all = {};
+                      if (e.target.checked) (data.suppliers || []).forEach((s) => { all[s.id] = true; });
+                      setSelectedSuppliers(all);
+                    }} /></th>
+                    <th>{t('Supplier')}</th>
+                    <th>{t('Phone')}</th>
+                    <th>{t('Pending Bills')}</th>
+                    <th>{t('Payable')}</th>
+                    <th>{t('Last Reminded')}</th>
+                    <th>{t('Action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.suppliers || []).length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No supplier dues')}</td></tr>
+                  )}
+                  {(data.suppliers || []).map((s) => (
+                    <tr key={s.id}>
+                      <td><input type="checkbox" checked={!!selectedSuppliers[s.id]} onChange={(e) => setSelectedSuppliers({ ...selectedSuppliers, [s.id]: e.target.checked })} /></td>
+                      <td style={{ fontWeight: 500 }}>{s.name}</td>
+                      <td>{s.phone || '—'}</td>
+                      <td>
+                        {(s.pending_bills || []).length > 0 ? (
+                          <div style={{ fontSize: 12 }}>
+                            {s.pending_bills.slice(0, 2).map((b, idx) => (
+                              <div key={idx}>{b.bill_number} ({b.bill_date}): {formatMoney(b.balance_amount)}</div>
+                            ))}
+                            {s.pending_bills.length > 2 && <div style={{ color: 'var(--text-secondary)' }}>+{s.pending_bills.length - 2} more</div>}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td style={{ fontWeight: 700, color: 'var(--error)' }}>{formatMoney(s.payable || s.outstanding)}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.last_reminder_at ? new Date(s.last_reminder_at).toLocaleString() : t('Never')}</td>
+                      <td>
+                        <button className="btn btn-sm btn-success" onClick={() => handleSupplierRemind(s.id)} style={{ gap: 4 }}>
+                          <MessageCircle size={14} /> WhatsApp
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (active === 'product-profit') {
+      const rows = data.rows || [];
+      const totalSales = rows.reduce((s, r) => s + Number(r.sales || 0), 0);
+      const totalCost = rows.reduce((s, r) => s + Number(r.cost || 0), 0);
+      const totalProfit = rows.reduce((s, r) => s + Number(r.profit || 0), 0);
+      const avgMargin = totalSales > 0 ? ((totalProfit / totalSales) * 100).toFixed(1) : '0.0';
+
+      return (
+        <div>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Sales')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(totalSales)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Cost')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(totalCost)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Profit')}</div><div className="stat-value" style={{ fontSize: 18, color: totalProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(totalProfit)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Profit Margin')}</div><div className="stat-value" style={{ fontSize: 18 }}>{avgMargin}%</div></div></div>
+          </div>
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>{t('Product')}</th><th>{t('Qty Sold')}</th><th>{t('Sales')}</th><th>{t('Cost')}</th><th>{t('Profit')}</th><th>{t('Margin %')}</th></tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No sales data')}</td></tr>
+                  )}
+                  {rows.map((r, i) => {
+                    const margin = Number(r.sales) > 0 ? ((Number(r.profit) / Number(r.sales)) * 100).toFixed(1) : '0.0';
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500 }}>{r.product_name}</td>
+                        <td>{r.quantity}</td>
+                        <td>{formatMoney(r.sales)}</td>
+                        <td>{formatMoney(r.cost)}</td>
+                        <td style={{ fontWeight: 700, color: Number(r.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(r.profit)}</td>
+                        <td>{margin}%</td>
+                      </tr>
+                    );
+                  })}
+                  {rows.length > 0 && (
+                    <tr style={{ background: 'var(--bg-secondary)', fontWeight: 700 }}>
+                      <td>{t('Total')}</td>
+                      <td>{rows.reduce((s, r) => s + Number(r.quantity || 0), 0)}</td>
+                      <td>{formatMoney(totalSales)}</td>
+                      <td>{formatMoney(totalCost)}</td>
+                      <td style={{ color: totalProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(totalProfit)}</td>
+                      <td>{avgMargin}%</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (active === 'customer-profit') {
+      const rows = data.rows || [];
+      const totalInvoices = rows.reduce((s, r) => s + Number(r.invoices || 0), 0);
+      const totalSales = rows.reduce((s, r) => s + Number(r.sales || 0), 0);
+      const totalCost = rows.reduce((s, r) => s + Number(r.cost || 0), 0);
+      const totalProfit = rows.reduce((s, r) => s + Number(r.profit || 0), 0);
+      const avgMargin = totalSales > 0 ? ((totalProfit / totalSales) * 100).toFixed(1) : '0.0';
+
+      return (
+        <div>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card"><div><div className="stat-label">{t('Customers')}</div><div className="stat-value">{rows.length}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Sales')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(totalSales)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Profit')}</div><div className="stat-value" style={{ fontSize: 18, color: totalProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(totalProfit)}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Profit Margin')}</div><div className="stat-value" style={{ fontSize: 18 }}>{avgMargin}%</div></div></div>
+          </div>
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>{t('Customer')}</th><th>{t('Invoices')}</th><th>{t('Sales')}</th><th>{t('Cost')}</th><th>{t('Profit')}</th><th>{t('Margin %')}</th></tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No sales data')}</td></tr>
+                  )}
+                  {rows.map((r, i) => {
+                    const margin = Number(r.sales) > 0 ? ((Number(r.profit) / Number(r.sales)) * 100).toFixed(1) : '0.0';
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500 }}>{r.customer_name}</td>
+                        <td>{r.invoices}</td>
+                        <td>{formatMoney(r.sales)}</td>
+                        <td>{formatMoney(r.cost)}</td>
+                        <td style={{ fontWeight: 700, color: Number(r.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(r.profit)}</td>
+                        <td>{margin}%</td>
+                      </tr>
+                    );
+                  })}
+                  {rows.length > 0 && (
+                    <tr style={{ background: 'var(--bg-secondary)', fontWeight: 700 }}>
+                      <td>{t('Total')}</td>
+                      <td>{totalInvoices}</td>
+                      <td>{formatMoney(totalSales)}</td>
+                      <td>{formatMoney(totalCost)}</td>
+                      <td style={{ color: totalProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(totalProfit)}</td>
+                      <td>{avgMargin}%</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (active === 'expiry') {
+      const allRows = data.rows || [];
+      const rows = expiredOnly
+        ? allRows.filter((r) => new Date(r.expiry_date) < new Date())
+        : allRows;
+      const expiredCount = allRows.filter((r) => new Date(r.expiry_date) < new Date()).length;
+      const days7Count = allRows.filter((r) => { const d = new Date(r.expiry_date) - new Date(); return d >= 0 && d <= 7 * 86400000; }).length;
+      const days30Count = allRows.filter((r) => { const d = new Date(r.expiry_date) - new Date(); return d > 7 * 86400000 && d <= 30 * 86400000; }).length;
+
+      return (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>{t('Expiry Range')}:</span>
+            {[7, 30, 60, 90].map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`btn btn-sm ${expiryDays === d ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setExpiryDays(d)}
+              >
+                {d} {t('days')}
+              </button>
+            ))}
+            <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer', marginBottom: 0 }}>
+              <input type="checkbox" checked={expiredOnly} onChange={(e) => setExpiredOnly(e.target.checked)} style={{ marginRight: 6 }} />
+              {t('Expired Stock Only')}
+            </label>
+          </div>
+
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Batches')}</div><div className="stat-value">{allRows.length}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Expired')}</div><div className="stat-value" style={{ color: 'var(--error)' }}>{expiredCount}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('<= 7 Days')}</div><div className="stat-value" style={{ color: 'var(--error)' }}>{days7Count}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('<= 30 Days')}</div><div className="stat-value" style={{ color: 'var(--warning)' }}>{days30Count}</div></div></div>
+          </div>
+
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>{t('Product')}</th><th>{t('SKU')}</th><th>{t('Warehouse')}</th><th>{t('Batch')}</th><th>{t('Expiry Date')}</th><th>{t('Quantity')}</th><th>{t('Price')}</th><th>{t('Status')}</th><th>{t('Actions')}</th></tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No expiring batches found')}</td></tr>
+                  )}
+                  {rows.map((r) => {
+                    const badge = getExpiryBadge(r.expiry_date);
+                    return (
+                      <tr key={r.id}>
+                        <td style={{ fontWeight: 500 }}>{r.product_name}</td>
+                        <td>{r.sku || '—'}</td>
+                        <td>{r.warehouse_name || '—'}</td>
+                        <td>{r.batch_number}</td>
+                        <td>{r.expiry_date}</td>
+                        <td style={{ fontWeight: 600 }}>{r.quantity}</td>
+                        <td>{formatMoney(r.purchase_price)}</td>
+                        <td><span className={`badge ${badge.clazz}`}>{badge.label}</span></td>
+                        <td>
+                          <div className="table-actions">
+                            <button className="btn-icon" title={t('Adjust Stock (Write-off)')} onClick={() => setAdjustBatchModal(r)}>
+                              <SlidersHorizontal size={16} />
+                            </button>
+                            <button className="btn-icon" title={t('Purchase Return')} onClick={() => navigate('/purchase-returns/new')}>
+                              <RotateCcw size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <Modal open={!!adjustBatchModal} onClose={() => setAdjustBatchModal(null)} title={t('Write-off Expired Batch')} size="md"
+            footer={
+              <>
+                <button className="btn btn-secondary" onClick={() => setAdjustBatchModal(null)}>{t('Cancel')}</button>
+                <button className="btn btn-primary" onClick={handleAdjustExpiredStock}>{t('Confirm Write-off to 0')}</button>
+              </>
+            }
+          >
+            {adjustBatchModal && (
+              <div>
+                <p><strong>{t('Product')}:</strong> {adjustBatchModal.product_name}</p>
+                <p><strong>{t('Batch')}:</strong> {adjustBatchModal.batch_number}</p>
+                <p><strong>{t('Current Quantity')}:</strong> {adjustBatchModal.quantity}</p>
+                <div className="form-group" style={{ marginTop: 12 }}>
+                  <label className="form-label">{t('Reason')}</label>
+                  <input className="form-control" value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} />
+                </div>
+              </div>
+            )}
+          </Modal>
+        </div>
+      );
+    }
+
+    if (active === 'warehouse-stock') {
+      const allRows = data.rows || [];
+      const rows = warehouseFilter
+        ? allRows.filter((r) => String(r.warehouse_name) === String(warehouseFilter) || String(r.warehouse_id) === String(warehouseFilter))
+        : allRows;
+      const totalQty = rows.reduce((s, r) => s + Number(r.quantity || 0), 0);
+      const totalVal = rows.reduce((s, r) => s + Number(r.stock_value || 0), 0);
+
+      const whNames = [...new Set(allRows.map((r) => r.warehouse_name).filter(Boolean))];
+
+      return (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>{t('Warehouse Filter')}:</span>
+            <select className="form-control" style={{ width: 220 }} value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}>
+              <option value="">{t('All Warehouses')}</option>
+              {whNames.map((w) => <option key={w} value={w}>{w}</option>)}
+            </select>
+          </div>
+
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginBottom: 20 }}>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Stock Quantity')}</div><div className="stat-value">{totalQty}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Total Stock Valuation')}</div><div className="stat-value" style={{ fontSize: 20, color: 'var(--primary)' }}>{formatMoney(totalVal)}</div></div></div>
+          </div>
+
+          <div className="card">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>{t('Warehouse')}</th><th>{t('SKU')}</th><th>{t('Product')}</th><th>{t('Quantity')}</th><th>{t('Purchase Price')}</th><th>{t('Stock Value')}</th></tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No stock records')}</td></tr>
+                  )}
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{r.warehouse_name}</td>
+                      <td>{r.sku || '—'}</td>
+                      <td style={{ fontWeight: 500 }}>{r.product_name}</td>
+                      <td><span className="badge badge-success">{r.quantity}</span></td>
+                      <td>{formatMoney(r.purchase_price)}</td>
+                      <td style={{ fontWeight: 700 }}>{formatMoney(r.stock_value)}</td>
+                    </tr>
+                  ))}
+                  {rows.length > 0 && (
+                    <tr style={{ background: 'var(--bg-secondary)', fontWeight: 700 }}>
+                      <td colSpan={3}>{t('Total')}</td>
+                      <td>{totalQty}</td>
+                      <td>—</td>
+                      <td>{formatMoney(totalVal)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       );

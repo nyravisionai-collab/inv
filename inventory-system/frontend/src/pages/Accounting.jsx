@@ -63,7 +63,17 @@ export function Expenses() {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">{t('Expenses')}</h1></div>
-        <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Expense</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={async () => {
+            try {
+              const r = await settingsAPI.exportPdf('expenses', {});
+              success(`${t('PDF saved')}: ${r.data.data.fileName}`);
+            } catch { error(t('Export failed')); }
+          }}>
+            <Download size={18} /> {t('Export PDF')}
+          </button>
+          <button className="btn btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Expense</button>
+        </div>
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? <EmptyState title="No expenses" /> : (

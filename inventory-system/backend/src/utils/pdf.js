@@ -225,4 +225,30 @@ function pdfMoney(amount, symbol = '₹', unicode = true) {
   return `${safeSymbol}${n.toFixed(2)}`;
 }
 
-module.exports = { createPdfDocument, pdfMoney, splitByScript };
+/**
+ * Render signature image (if uploaded) and "Authorised Signatory" label in PDF footers.
+ */
+function renderSignature(doc, writeText, setBold, company, yPos) {
+  let y = yPos || (doc.y + 30);
+  if (y > 700) { doc.addPage(); y = 50; }
+
+  const sigPath = company?.signature_path;
+  const config = require('../config');
+  const path = require('path');
+  const fs = require('fs');
+  const sigFile = sigPath ? path.join(config.uploadDir, String(sigPath).replace(/^\/uploads\//, '')) : null;
+  let textY = y;
+  if (sigFile && fs.existsSync(sigFile)) {
+    try {
+      doc.image(sigFile, 385, y - 10, { fit: [140, 50], align: 'right' });
+      textY = y + 45;
+    } catch {
+      // ignore unsupported image format
+    }
+  }
+  setBold(true);
+  writeText('Authorised Signatory', { x: 380, y: textY, width: 165, align: 'right' });
+  setBold(false);
+}
+
+module.exports = { createPdfDocument, pdfMoney, splitByScript, renderSignature };

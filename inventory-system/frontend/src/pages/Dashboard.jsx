@@ -119,25 +119,29 @@ export default function Dashboard() {
 
         <div className="card">
           <div className="card-header">
-            <div className="card-title">{t('Low Stock Alerts')}</div>
+            <div className="card-title">{t('Low Stock Alerts')} ({data.lowStockCount})</div>
             <button className="btn btn-sm btn-secondary" onClick={() => navigate('/low-stock')}>{t('View All')}</button>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>{t('Product')}</th><th>{t('Stock')}</th><th>{t('Min')}</th></tr>
+                <tr><th>{t('Product')}</th><th>{t('Stock')}</th><th>{t('Min')}</th><th>{t('Reorder')}</th></tr>
               </thead>
               <tbody>
                 {(data.lowStock || []).length === 0 && (
-                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('All stocks healthy')}</td></tr>
+                  <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('All stocks healthy')}</td></tr>
                 )}
-                {(data.lowStock || []).slice(0, 8).map((p) => (
-                  <tr key={p.id}>
-                    <td data-label={t('Product')}>{p.name}</td>
-                    <td data-label={t('Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
-                    <td data-label={t('Min')}>{p.min_stock}</td>
-                  </tr>
-                ))}
+                {(data.lowStock || []).slice(0, 8).map((p) => {
+                  const sugg = Math.max(Number(p.reorder_level || p.min_stock * 2) - Number(p.current_stock), 0);
+                  return (
+                    <tr key={p.id} onClick={() => navigate('/low-stock')} style={{ cursor: 'pointer' }}>
+                      <td data-label={t('Product')}>{p.name}</td>
+                      <td data-label={t('Stock')}><span className="badge badge-error">{p.current_stock}</span></td>
+                      <td data-label={t('Min')}>{p.min_stock}</td>
+                      <td data-label={t('Reorder')} style={{ fontWeight: 600, color: 'var(--primary)' }}>{sugg}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

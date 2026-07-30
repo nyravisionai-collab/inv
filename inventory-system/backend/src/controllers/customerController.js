@@ -153,7 +153,52 @@ function outstanding(req, res) {
       FROM customers c WHERE c.is_active = 1 AND c.current_balance > 0
       ORDER BY c.current_balance DESC
     `).all();
+    const openStmt = db.prepare(`
+      SELECT invoice_number, invoice_date, due_date, balance_amount
+      FROM sales
+      WHERE customer_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0
+      ORDER BY invoice_date ASC LIMIT 5
+    `);
+    for (const r of rows) {
+      r.pending_invoices = openStmt.all(r.id);
+    }
     return success(res, rows);
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
+function sendReminder(req, res) {
+  try {
+    const { id } = req.params;
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+    if (!customer) return error(res, 'Customer not found', 404);
+
+    const openInvoices = db.prepare(`
+      SELECT invoice_number, invoice_date, due_date, balance_amount
+      FROM sales
+      WHERE customer_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0
+      ORDER BY invoice_date ASC LIMIT 5
+    `).all(id);
+
+    const company = db.prepare('SELECT company_name, currency_symbol FROM company_settings WHERE id = 1').get() || {};
+    const sym = company.currency_symbol || '₹';
+    const phone = (customer.phone || '').replace(/\D/g, '');
+
+    let detailsStr = openInvoices.map((inv) => `- ${inv.invoice_number} (${inv.invoice_date}): ${sym}${Number(inv.balance_amount).toFixed(2)}`).join('\n');
+    if (!detailsStr) {
+      detailsStr = `- Outstanding Balance: ${sym}${Number(customer.current_balance).toFixed(2)}`;
+    }
+
+    const msg = encodeURIComponent(
+      `*${company.company_name || 'Electricalskart'}*\nPayment Reminder for *${customer.name}*\n\nPending Balance: ${sym}${Number(customer.current_balance).toFixed(2)}\nPending Invoices:\n${detailsStr}\n\nPlease clear the dues at your earliest convenience. Thank you!`
+    );
+    const link = phone ? `https://wa.me/91${phone.slice(-10)}?text=${msg}` : `https://wa.me/?text=${msg}`;
+
+    const timestamp = now();
+    db.prepare('UPDATE customers SET last_reminder_at = ? WHERE id = ?').run(timestamp, id);
+
+    return success(res, { link, message: decodeURIComponent(msg), last_reminder_at: timestamp }, 'Reminder generated');
   } catch (err) {
     return error(res, err.message, 500);
   }
@@ -174,4 +219,4 @@ async function pdfLedger(req, res) {
   } catch (err) { return error(res, err.message, 500); }
 }
 
-module.exports = { list, getById, create, update, remove, ledger, pdfLedger, outstanding };
+module.exports = { list, getById, create, update, remove, ledger, pdfLedger, outstanding, sendReminder };
