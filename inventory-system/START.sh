@@ -271,6 +271,30 @@ printf '\n%sStop:%s bash STOP.sh   %s|%s   %sStatus:%s bash STOP.sh --status\n\n
   "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET" "$C_BOLD" "$C_RESET"
 
 # ---------------------------------------------------------------------------
+# 8.5 Auto-open browser when services are ready
+# ---------------------------------------------------------------------------
+open_browser() {
+  local url="$1"
+  # Cross-platform: python3 webbrowser works everywhere; fall back to OS tools
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import webbrowser, sys; webbrowser.open('$url')" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || true
+  elif command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  elif command -v cygstart >/dev/null 2>&1; then
+    cygstart "$url" >/dev/null 2>&1 || true
+  elif command -v start >/dev/null 2>&1; then
+    start "$url" >/dev/null 2>&1 || true
+  fi
+}
+
+# Open local frontend after everything is healthy (only when a display is available)
+if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -t 1 ]; then
+  open_browser "${SCHEME}://localhost:${FRONTEND_PORT}" || true
+fi
+
+# ---------------------------------------------------------------------------
 # 9. Optional foreground mode
 # ---------------------------------------------------------------------------
 if [ "$FOREGROUND" -eq 1 ]; then
@@ -282,6 +306,20 @@ if [ "$FOREGROUND" -eq 1 ]; then
   log_warn "A service exited on its own; shutting the other one down."
   bash "$ROOT/STOP.sh" --quiet || true
   exit $EX_START_FAILED
+fi
+
+# ---------------------------------------------------------------------------
+# 10. Keep interactive terminal open (window does not vanish immediately)
+# ---------------------------------------------------------------------------
+# If the user ran this from a terminal/desktop, leave the window visible so
+# they can see the URLs and stop command.  Services stay running in background.
+if [ -t 0 ]; then
+  printf '\n%sServer running on %s://localhost:%s%s\n' "$C_BOLD" "$SCHEME" "$FRONTEND_PORT" "$C_RESET"
+  printf '%sPress Enter to close this window  (services stay on)%s\n' "$C_DIM" "$C_RESET"
+  printf '%sStop with: bash STOP.sh  |  Ctrl-C also stops services%s\n\n' "$C_BOLD" "$C_RESET"
+  # Allow Ctrl+C to cleanly stop both services before exiting
+  trap 'printf "\nStopping...\n"; bash "$ROOT/STOP.sh" --quiet || true; exit 0' INT TERM
+  read -r
 fi
 
 exit $EX_OK
