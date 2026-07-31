@@ -4,11 +4,17 @@ import App from './App';
 import './index.css';
 
 /**
- * Clear all service worker caches, then reload the page.  Exposed on
- * window so the ErrorBoundary fallback can invoke it when the user clicks
- * "Reload App" – stale cached JS/CSS from a previous deployment is the most
- * common cause of the "Cannot read properties of null (reading 'useState')"
- * error in React 19, where Vite content-hashed chunks change between builds.
+ * Clear all service worker caches, then reload the page. Exposed on window so
+ * the ErrorBoundary fallback can invoke it when the user clicks "Reload App".
+ *
+ * Historically this was the only recovery from the
+ * "Cannot read properties of null (reading 'useContext')" crash: the old
+ * service worker cached Vite DEV-SERVER modules (`/src/*.jsx`,
+ * `/node_modules/.vite/deps/*`, ...) cache-first, and because those URLs carry
+ * no content hash it served a stale mix of modules after any code change,
+ * leaving React's hooks dispatcher null. sw.js now keeps those resources
+ * network-only, so the crash can no longer occur — this function remains as a
+ * manual "nuke and reload" escape hatch.
  */
 window.__clearCachesAndReload = async function () {
   // Tell the active service worker to delete all caches.
