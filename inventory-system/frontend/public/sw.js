@@ -1,19 +1,36 @@
 /**
- * Service worker for offline app-shell support.
+ * Service worker for the installable app shell + offline fallback.
  *
- * API responses are deliberately NOT cached. In a POS the stock counts and
- * prices must be authoritative — serving a stale cached /api/products could
- * cause a sale at an old price or against stock that no longer exists.
- * Only static build assets (HTML/CSS/JS/icons) are cached — never anything
- * under /api/ or /uploads/, which is where all business data lives.
+ * --------------------------------------------------------------------------
+ * WHY THIS IS NETWORK-ONLY FOR DEV-SERVER FILES (the important part)
+ * --------------------------------------------------------------------------
+ * This app is normally served by the Vite *dev* server (see START.sh), which
+ * serves source modules from URLs that NEVER change when the code changes —
+ * e.g. `/src/App.jsx`, `/@vite/client`, `/node_modules/.vite/deps/react.js`.
+ * Unlike a `vite build` (which emits content-hashed files under /assets/),
+ * those URLs carry no version, so a cache-first strategy would freeze the app
+ * onto a stale MIX of old and new modules after any edit. When an old module
+ * and a freshly re-bundled React dependency land in the same page, React's
+ * internal hooks dispatcher ends up null and the app dies with:
  *
- * Bump CACHE whenever this file or the precached asset list changes so
- * every previously-installed client discards its old cache on next load
- * (see the `activate` handler below) instead of serving stale shell files
- * forever.
+ *     Cannot read properties of null (reading 'useContext')
+ *
+ * That is exactly the crash the ErrorBoundary used to catch. The fix is to let
+ * every Vite dev-server resource go straight to the network and NEVER read it
+ * from, or write it to, this cache. Only genuinely immutable, content-hashed
+ * production assets (and the stable icon/manifest set) are cached.
+ *
+ * API responses are also deliberately NOT cached. In a POS the stock counts
+ * and prices must be authoritative — serving a stale cached /api/products
+ * could cause a sale at an old price or against stock that no longer exists.
+ * Nothing under /api/ or /uploads/ (where all business data lives) is cached.
+ *
+ * Bump CACHE whenever this file changes: every previously-installed client
+ * fully purges its caches on the next `activate` (see below) instead of
+ * serving stale shell files forever.
  */
-const CACHE = 'inv-mgmt-v4';
-const ASSETS = [
+const CACHE = 'inv-mgmt-v5';
+const PRECACHE_URLS = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
@@ -23,18 +40,39 @@ const ASSETS = [
   '/icon-512-maskable.png',
 ];
 
+/** Vite dev-server resources — versionless URLs, must never be cached. */
+function isDevServerAsset(pathname) {
+  return (
+    pathname.startsWith('/@vite/') ||
+    pathname.startsWith('/@react-refresh') ||
+    pathname.startsWith('/src/') ||
+    pathname.startsWith('/node_modules/')
+  );
+}
+
+/**
+ * Content-hashed bundles emitted by `vite build` under /assets/. Because the
+ * URL itself changes whenever the content does, these are immutable and safe
+ * to serve cache-first. (Harmless under the dev server, which has no /assets/.)
+ */
+function isHashedBuildAsset(pathname) {
+  return pathname.startsWith('/assets/');
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS).catch(() => undefined))
+    caches.open(CACHE).then((c) => c.addAll(PRECACHE_URLS).catch(() => undefined))
   );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
+  // FULL purge: delete every cache (old versions AND any poisoned dev-server
+  // entries from v4 and earlier) so an upgrade cannot leave a stale module
+  // mix behind. The cache is rebuilt lazily from safe assets on subsequent
+  // requests.
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
   );
   self.clients.claim();
 });
@@ -70,28 +108,69 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Navigation requests: network first, fall back to the cached shell so the
-  // app still opens when the backend is unreachable.
-  if (request.mode === 'navigate') {
-    e.respondWith(
-      fetch(request).catch(() => caches.match('/index.html').then((r) => r || Response.error()))
-    );
+  // Dev-server resources: network-only, never cached. This is what prevents
+  // the stale-module-mix crash. (Falling back to a possibly-inconsistent
+  // cached set when offline would just re-introduce the crash, so we don't.)
+  if (isDevServerAsset(url.pathname)) {
+    e.respondWith(fetch(request).catch(() => Response.error()));
     return;
   }
 
-  // Static assets: cache first (they are content-hashed by Vite).
-  e.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
+  // Navigation requests: network first so new deploys take effect
+  // immediately, falling back to the cached shell so the app still opens
+  // when the backend/server is momentarily unreachable.
+  if (request.mode === 'navigate') {
+    e.respondWith(
+      fetch(request)
         .then((res) => {
+          // Keep the offline shell current without ever caching API data.
           if (res && res.ok && res.type === 'basic') {
             const clone = res.clone();
             caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => undefined);
           }
           return res;
         })
-        .catch(() => cached || Response.error());
-    })
+        .catch(() =>
+          caches.match(request).then((r) => r || caches.match('/index.html').then((s) => s || Response.error()))
+        )
+    );
+    return;
+  }
+
+  // Immutable, content-hashed production bundles: cache-first.
+  if (isHashedBuildAsset(url.pathname)) {
+    e.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((res) => {
+            if (res && res.ok && res.type === 'basic') {
+              const clone = res.clone();
+              caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => undefined);
+            }
+            return res;
+          })
+          .catch(() => cached || Response.error());
+      })
+    );
+    return;
+  }
+
+  // Stable static files (icons, manifest, etc.): stale-while-revalidate —
+  // respond instantly from cache if present, then refresh in the background.
+  e.respondWith(
+    caches.open(CACHE).then((cache) =>
+      cache.match(request).then((cached) => {
+        const network = fetch(request)
+          .then((res) => {
+            if (res && res.ok && res.type === 'basic') {
+              cache.put(request, res.clone()).catch(() => undefined);
+            }
+            return res;
+          })
+          .catch(() => cached);
+        return cached || network;
+      })
+    )
   );
 });
