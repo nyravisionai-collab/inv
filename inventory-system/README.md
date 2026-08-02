@@ -164,6 +164,39 @@ npm run test:sh                 # start/stop regression tests (uses real ports)
 cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities
 ```
 
+## Very old phones (Windows Phone) — Lite client
+
+The React app needs a modern browser. For devices whose browser is too old —
+a Windows Phone with only Internet Explorer/old Edge left working, ancient
+Android stock browsers, etc. — the backend serves **Inventory Lite**, a
+single-file ES5 client that runs on practically anything:
+
+```
+http://<LAN-IP>:5000/lite        (always, served by the backend)
+http://<LAN-IP>:5173/lite        (when the frontend dev/preview server runs)
+```
+
+`START.sh` prints the exact URL when the server starts. Old browsers that
+open the normal app URL are forwarded to `/lite/` automatically via a
+`<script nomodule>` redirect in `frontend/index.html` — no bookmark juggling
+needed.
+
+The lite client works with the same live data and covers daily counter work:
+
+- **Home** — today's sales/cash/profit, stock value, low-stock alerts
+- **Sale** — POS bill: search item → cart → cash or credit bill
+- **Stock** — stock in/out adjustments with reason
+- **New** — add a product (name, prices, opening stock, unit, GST)
+- **Bills** — recent bills and their line-item detail
+- Gujarati / English toggle; Gujarati font is bundled (`backend/public/lite/`)
+  because handsets that old often ship without an Indic font
+
+It lives at `backend/public/lite/index.html` — edit it directly, keep it
+strictly ES5 (no `fetch`, arrows, `let/const` or modules). There is nothing
+to install/build on the phone: it is a plain web page, not an app store app.
+Things it intentionally leaves to the full app: purchases, payments ledger,
+accounting, reports/PDF/WhatsApp, settings and barcode utilities.
+
 ## Security Notes
 
 **This build has no login.** Authentication is intentionally disabled for

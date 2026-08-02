@@ -13,6 +13,9 @@
     <meta name="apple-mobile-web-app-title" content="Inventory" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Inventory Manager</title>
+    <!-- Browsers too old for ES modules (Windows Phone IE11 / old Edge) can't
+         run this app at all — send them to the lightweight ES5 client. -->
+    <script nomodule>window.location.replace('/lite/');</script>
   </head>
   <body>
     <div id="root"></div>

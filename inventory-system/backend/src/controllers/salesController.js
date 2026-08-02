@@ -151,6 +151,14 @@ function createSaleCore(body, userId) {
       if (prodTax && prodTax.tax_type) item = { ...item, tax_type: prodTax.tax_type };
     }
     const v = validateLineItem(item, index);
+    // The validator accepts a line that references a product by id alone, but
+    // sale_items.product_name is NOT NULL — a nameless line would die at the
+    // INSERT with a 500. Resolve the product's name instead.
+    let lineName = item.product_name || item.name;
+    if (!String(lineName || '').trim() && item.product_id) {
+      const nameRow = db.prepare('SELECT name FROM products WHERE id = ?').get(item.product_id);
+      lineName = nameRow ? nameRow.name : null;
+    }
     const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
     // Snapshot the cost at the time of sale so historical profit reports stay
     // stable even when the product's purchase price changes later. A selected
@@ -160,7 +168,7 @@ function createSaleCore(body, userId) {
       : (item.product_id ? db.prepare('SELECT purchase_price FROM products WHERE id = ?').get(item.product_id) : null);
     return {
       product_id: item.product_id || null,
-      product_name: item.product_name || item.name,
+      product_name: lineName,
       hsn_code: item.hsn_code || null,
       batch_id: item.batch_id || null,
       quantity: v.quantity,

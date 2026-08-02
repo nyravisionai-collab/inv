@@ -118,6 +118,8 @@ export default defineConfig({
     proxy: {
       '/api': localProxy,
       '/uploads': localProxy,
+      // So the lite client is reachable as http://<lan-ip>:5173/lite too
+      '/lite': localProxy,
     },
   },
   preview: {
@@ -128,6 +130,7 @@ export default defineConfig({
     proxy: {
       '/api': localProxy,
       '/uploads': localProxy,
+      '/lite': localProxy,
     },
   },
   build: {
