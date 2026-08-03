@@ -29,7 +29,7 @@
  * fully purges its caches on the next `activate` (see below) instead of
  * serving stale shell files forever.
  */
-const CACHE = 'inv-mgmt-v5';
+const CACHE = 'inv-mgmt-v6';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -48,6 +48,17 @@ function isDevServerAsset(pathname) {
     pathname.startsWith('/src/') ||
     pathname.startsWith('/node_modules/')
   );
+}
+
+/**
+ * The ES5 lite client (/lite/) is a separate, hand-written app whose scripts
+ * and stylesheet have stable, unversioned URLs (/lite/js/core.js, ...). Caching
+ * them would freeze a device onto a stale mix of old and new lite files after
+ * an update — the same failure mode as the dev-server assets above. It is also
+ * served by the backend, not this build, so it is never part of our shell.
+ */
+function isLiteClient(pathname) {
+  return pathname === '/lite' || pathname.startsWith('/lite/');
 }
 
 /**
@@ -104,7 +115,13 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(request.url);
 
   // Never serve API or upload responses from cache — always hit the network.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) {
+  // The lite client is excluded for the same reason as the dev-server assets:
+  // its URLs are versionless, so a cached copy could go stale forever.
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/uploads/') ||
+    isLiteClient(url.pathname)
+  ) {
     return;
   }
 

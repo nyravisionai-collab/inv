@@ -45,4 +45,31 @@ module.exports = [
       'no-empty': 'off',
     },
   },
+  {
+    /**
+     * The lite client (public/lite) is browser code, not Node, and is
+     * deliberately written in ES5 so it runs on Windows Phone IE11 and other
+     * pre-ES6 handsets. `no-var`/`prefer-const` would demand exactly the
+     * syntax those browsers cannot parse, so they are inverted here: `no-var`
+     * is off and ES6+ syntax is rejected by `ecmaVersion: 5` instead.
+     */
+    files: ['public/lite/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 5,
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+        Lite: 'writable',
+      },
+    },
+    rules: {
+      'no-var': 'off',
+      'prefer-const': 'off',
+      'no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrors: 'none',
+      }],
+    },
+  },
 ];

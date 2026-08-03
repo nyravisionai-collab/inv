@@ -168,8 +168,8 @@ cd backend && npm audit --omit=dev   # runtime dependency vulnerabilities
 
 The React app needs a modern browser. For devices whose browser is too old —
 a Windows Phone with only Internet Explorer/old Edge left working, ancient
-Android stock browsers, etc. — the backend serves **Inventory Lite**, a
-single-file ES5 client that runs on practically anything:
+Android stock browsers, etc. — the backend serves **Inventory Lite**, an ES5
+client that runs on practically anything:
 
 ```
 http://<LAN-IP>:5000/lite        (always, served by the backend)
@@ -181,21 +181,51 @@ open the normal app URL are forwarded to `/lite/` automatically via a
 `<script nomodule>` redirect in `frontend/index.html` — no bookmark juggling
 needed.
 
-The lite client works with the same live data and covers daily counter work:
+**Lite is feature-complete**: it talks to the same API and the same live data
+as the desktop app, and every screen in the React sidebar has a Lite
+equivalent. Five thumb-sized tabs (Home / Sale / Stock / Bills / More) with
+everything else behind **More**:
 
-- **Home** — today's sales/cash/profit, stock value, low-stock alerts
-- **Sale** — POS bill: search item → cart → cash or credit bill
-- **Stock** — stock in/out adjustments with reason
-- **New** — add a product (name, prices, opening stock, unit, GST)
-- **Bills** — recent bills and their line-item detail
-- Gujarati / English toggle; Gujarati font is bundled (`backend/public/lite/`)
-  because handsets that old often ship without an Indic font
+| Area | What Lite can do |
+| --- | --- |
+| Dashboard | All KPIs (sales, cash, profit, stock value, receivables, payables, bank), low-stock list, top products, recent transactions, quick actions |
+| POS | Item search and barcode scan-to-add, per-line qty/price/discount, customer, bill discount in ₹ or %, all payment modes, full/part/credit payment |
+| Sales | Invoices, estimates, sale orders, delivery challans, sale returns — create, list, search, view, cancel, convert, invoice PDF, WhatsApp share |
+| Purchases | Purchase bills, orders and returns, with batch/expiry per line and new items created straight from a bill |
+| Parties | Customers and suppliers: create, edit, delete, ledger with date range, outstanding list, ledger PDF, WhatsApp payment reminder |
+| Payments | Payment in/out with mode, bank account and auto-settlement against the oldest open bills; delete a payment |
+| Inventory | Products (full CRUD incl. HSN, MRP, tax mode, barcode), stock adjustments, stock transfers, low stock, stock report, categories, brands, units, warehouses, printable QR barcode sheet |
+| Accounting | Expenses, income, cash & bank accounts, cash book with date range + PDF, balanced journal entries |
+| Reports | All 14 reports (P&L, balance sheet, GST with rate/HSN breakdown, sales, purchases, expenses, stock, warehouse stock, expiry, customers, suppliers, outstanding, product profit, customer profit) with date ranges and server-side PDF export |
+| System | Company settings, tax rates, users, activity log, backup / restore, CSV export |
+| Everywhere | Gujarati ⇄ English toggle, global search, notification badge, hardware Back-button support |
 
-It lives at `backend/public/lite/index.html` — edit it directly, keep it
-strictly ES5 (no `fetch`, arrows, `let/const` or modules). There is nothing
-to install/build on the phone: it is a plain web page, not an app store app.
-Things it intentionally leaves to the full app: purchases, payments ledger,
-accounting, reports/PDF/WhatsApp, settings and barcode utilities.
+Money math (line totals, tax modes, proportional bill discount) is mirrored
+from `backend/src/utils/helpers.js`, so the total the phone shows matches the
+server to the paisa — required because a cash bill posts
+`paid_amount = grandTotal`.
+
+### Working on the lite client
+
+```
+backend/public/lite/
+  index.html            app shell + script tags (load order matters)
+  css/lite.css          floats only — no flexbox/grid
+  js/i18n.js            Gujarati + English strings
+  js/core.js            state, XHR helper, money math, shared renderers
+  js/app.js             router, tab bar, "More" menu
+  js/screens/*.js       one file per feature area
+  fonts/                bundled Noto Sans Gujarati (old handsets lack Indic fonts)
+```
+
+Keep it **strictly ES5**: no `let`/`const`, arrow functions, template
+literals, modules, `fetch`, `Promise`, `classList`, `Object.assign`,
+`Array.from` or `String.prototype.includes`. `tests/lite.test.js` enforces
+this — it parses every file with `ecmaVersion: 5`, greps for banned runtime
+APIs, and fails if a menu entry has no registered screen. Adding a screen is
+`Lite.screens.myScreen = { title: fn, render: fn }` plus an entry in the
+`MENU` table in `app.js`. There is nothing to install or build on the phone:
+it is a plain web page, not an app store app.
 
 ## Security Notes
 
