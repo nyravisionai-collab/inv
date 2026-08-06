@@ -1,23 +1,25 @@
 import { useEffect, useState, useRef } from 'react';
-import { Search, Trash2, Plus, Minus, ShoppingCart, X } from 'lucide-react';
-import { productsAPI, salesAPI, customersAPI } from '../api/client';
+import { Search, Trash2, Plus, Minus, ShoppingCart, X, QrCode } from 'lucide-react';
+import { productsAPI, salesAPI, partiesAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
 import { calcLineTotal, round2 } from '../utils/money';
+import BarcodeScanner from '../components/BarcodeScanner';
 
 export default function POS() {
   const [products, setProducts] = useState([]);
-  const [customers, setCustomers] = useState([]);
+  const [parties, setParties] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
-  const [customerId, setCustomerId] = useState('');
+  const [partyId, setPartyId] = useState('');
   const [paymentMode, setPaymentMode] = useState('cash');
   const [paidAmount, setPaidAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [barcode, setBarcode] = useState('');
+  const [scanning, setScanning] = useState(false);
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const barcodeRef = useRef(null);
@@ -26,12 +28,12 @@ export default function POS() {
     setLoading(true);
     setLoadError(false);
     try {
-      const [productsRes, customersRes] = await Promise.all([
+      const [productsRes, partiesRes] = await Promise.all([
         productsAPI.list({ limit: 100, is_active: '1' }),
-        customersAPI.list({ limit: 100 }),
+        partiesAPI.list({ limit: 100 }),
       ]);
       setProducts(productsRes.data.data);
-      setCustomers(customersRes.data.data);
+      setParties(partiesRes.data.data);
     } catch {
       setLoadError(true);
       error(t('Failed to load products'));
@@ -58,10 +60,8 @@ export default function POS() {
         product_name: product.name,
         quantity: 1,
         unit_price: product.selling_price,
-        tax_rate: product.tax_rate || 0,
         discount_value: 0,
         discount_type: 'amount',
-        tax_type: product.tax_type || 'exclusive',
         hsn_code: product.hsn_code,
         unit_id: product.unit_id,
         stock: product.current_stock,
@@ -81,14 +81,18 @@ export default function POS() {
 
   const handleBarcode = async (e) => {
     if (e.key === 'Enter' && barcode.trim()) {
-      try {
-        const r = await productsAPI.barcode(barcode.trim());
-        addToCart(r.data.data);
-        setBarcode('');
-      } catch {
-        error(`${t('Product not found')}: ${barcode}`);
-        setBarcode('');
-      }
+      handleBarcodeValue(barcode.trim());
+    }
+  };
+
+  const handleBarcodeValue = async (val) => {
+    try {
+      const r = await productsAPI.barcode(val);
+      addToCart(r.data.data);
+      setBarcode('');
+    } catch {
+      error(`${t('Product not found')}: ${val}`);
+      setBarcode('');
     }
   };
 
@@ -114,7 +118,7 @@ export default function POS() {
       const paid = paidAmount !== '' ? Number(paidAmount) : rounded;
       const res = await salesAPI.create({
         invoice_type: 'pos',
-        customer_id: customerId || null,
+        party_id: partyId || null,
         items: cart,
         paid_amount: paid,
         payment_mode: paymentMode,
@@ -123,7 +127,7 @@ export default function POS() {
       success(`${t('Sale complete')}! ${res.data.data.invoice_number} — ${formatMoney(rounded)}`);
       setCart([]);
       setPaidAmount('');
-      setCustomerId('');
+      setPartyId('');
       barcodeRef.current?.focus();
     } catch (err) {
       error(apiErrorMessage(err, t, 'Checkout failed'));
@@ -141,14 +145,19 @@ export default function POS() {
               <Search size={18} />
               <input placeholder={t('Search products...')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <input
-              ref={barcodeRef}
-              className="form-control pos-barcode-input"
-              placeholder={t('Scan barcode...')}
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              onKeyDown={handleBarcode}
-            />
+            <div className="pos-barcode-wrapper" style={{ display: 'flex', gap: 8, flex: 1 }}>
+              <input
+                ref={barcodeRef}
+                className="form-control pos-barcode-input"
+                placeholder={t('Scan barcode...')}
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                onKeyDown={handleBarcode}
+              />
+              <button type="button" className="btn btn-secondary" onClick={() => setScanning(true)} title="Scan with camera">
+                <QrCode size={18} />
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -191,9 +200,9 @@ export default function POS() {
               <strong className="pos-cart-title"><ShoppingCart size={20} /> {t('Cart')} ({cart.length})</strong>
               {cart.length > 0 && <button className="btn btn-sm btn-secondary" onClick={() => setCart([])}><Trash2 size={14} /> {t('Clear')}</button>}
             </div>
-            <select className="form-control" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-              <option value="">{t('Walk-in Customer')}</option>
-              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <select className="form-control" value={partyId} onChange={(e) => setPartyId(e.target.value)}>
+              <option value="">{t('Walk-in Party')}</option>
+              {parties.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
 
@@ -242,6 +251,16 @@ export default function POS() {
           </div>
         </div>
       </div>
+
+      {scanning && (
+        <BarcodeScanner
+          onScan={(code) => {
+            handleBarcodeValue(code);
+            setScanning(false);
+          }}
+          onClose={() => setScanning(false)}
+        />
+      )}
     </div>
   );
 }

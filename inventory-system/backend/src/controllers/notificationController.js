@@ -38,7 +38,7 @@ function checkAlerts(req, res) {
     // Due payments - overdue sales
     const overdue = db.prepare(`
       SELECT s.id, s.invoice_number, s.balance_amount, s.due_date, c.name as customer_name
-      FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
+      FROM sales s LEFT JOIN parties c ON c.id = s.party_id
       WHERE s.status='completed' AND s.balance_amount > 0 AND s.due_date IS NOT NULL AND s.due_date < ?
     `).all(today());
 

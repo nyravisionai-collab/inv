@@ -16,7 +16,7 @@ const PURCHASE_STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'conver
 
 function list(req, res) {
   try {
-    const { page = 1, limit = 20, search, type, status, payment_status, supplier_id, from_date, to_date } = req.query;
+    const { page = 1, limit = 20, search, type, status, payment_status, party_id, from_date, to_date } = req.query;
     let where = 'WHERE 1=1';
     const params = [];
 
@@ -24,25 +24,25 @@ function list(req, res) {
     else { where += " AND p.bill_type = 'purchase'"; }
     if (status) { where += ' AND p.status = ?'; params.push(status); }
     if (payment_status) { where += ' AND p.payment_status = ?'; params.push(payment_status); }
-    if (supplier_id) { where += ' AND p.supplier_id = ?'; params.push(supplier_id); }
+    if (party_id) { where += ' AND p.party_id = ?'; params.push(party_id); }
     if (from_date) { where += ' AND p.bill_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND p.bill_date <= ?'; params.push(to_date); }
     if (search) {
-      where += ' AND (p.bill_number LIKE ? ESCAPE \'!\' OR s.name LIKE ? ESCAPE \'!\' OR p.supplier_invoice LIKE ? ESCAPE \'!\')';
+      where += ' AND (p.bill_number LIKE ? ESCAPE \'!\' OR s.name LIKE ? ESCAPE \'!\' OR p.party_invoice LIKE ? ESCAPE \'!\')';
       const q = `%${sanitizeLike(search)}%`;
       params.push(q, q, q);
     }
 
     const total = db.prepare(`
-      SELECT COUNT(*) as c FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id ${where}
+      SELECT COUNT(*) as c FROM purchases p LEFT JOIN parties s ON s.id = p.party_id ${where}
     `).get(...params).c;
 
     const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
-      SELECT p.*, s.name as supplier_name, s.phone as supplier_phone, u.full_name as created_by_name
+      SELECT p.*, s.name as party_name, s.phone as party_phone, u.full_name as created_by_name
       FROM purchases p
-      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      LEFT JOIN parties s ON s.id = p.party_id
       LEFT JOIN users u ON u.id = p.created_by
       ${where}
       ORDER BY p.bill_date DESC, p.id DESC
@@ -58,11 +58,11 @@ function list(req, res) {
 function getById(req, res) {
   try {
     const purchase = db.prepare(`
-      SELECT p.*, s.name as supplier_name, s.phone as supplier_phone, s.email as supplier_email,
-        s.address as supplier_address, s.gstin as supplier_gstin, w.name as warehouse_name,
+      SELECT p.*, s.name as party_name, s.phone as party_phone, s.email as party_email,
+        s.address as party_address, s.gstin as party_gstin, w.name as warehouse_name,
         u.full_name as created_by_name
       FROM purchases p
-      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      LEFT JOIN parties s ON s.id = p.party_id
       LEFT JOIN warehouses w ON w.id = p.warehouse_id
       LEFT JOIN users u ON u.id = p.created_by
       WHERE p.id = ?
@@ -86,7 +86,7 @@ function getById(req, res) {
 
 function create(req, res) {
   const createTxn = db.transaction(() => {
-    const { supplier_id, reference_number, supplier_invoice, notes, warehouse_id,
+    const { party_id, reference_number, party_invoice, notes, warehouse_id,
       payment_mode = 'cash', bank_account_id } = req.body;
 
     const bill_type = oneOf(req.body.bill_type, PURCHASE_TYPES, 'Bill type', 'purchase');
@@ -180,13 +180,13 @@ function create(req, res) {
 
     const result = db.prepare(`
       INSERT INTO purchases (
-        bill_number, bill_type, supplier_id, bill_date, due_date, reference_number, supplier_invoice,
+        bill_number, bill_type, party_id, bill_date, due_date, reference_number, party_invoice,
         status, payment_status, subtotal, discount_type, discount_value, discount_amount,
         tax_amount, shipping_charges, other_charges, round_off, grand_total, paid_amount,
         balance_amount, notes, warehouse_id, created_by
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      billNumber, bill_type, supplier_id || null, date, due_date, reference_number || null, supplier_invoice || null,
+      billNumber, bill_type, party_id || null, date, due_date, reference_number || null, party_invoice || null,
       status, paymentStatus, totals.subtotal, money.discountType, money.discountValue, totals.discountAmount,
       totals.taxAmount, money.shippingCharges, money.otherCharges, money.roundOff,
       totals.grandTotal, paid, balance, notes || null, wh || null, req.user.id
@@ -251,24 +251,24 @@ function create(req, res) {
       const payRes = db.prepare(`
         INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, purchase_id, created_by)
         VALUES (?,?,?,?,?,?,?,?,?,?)
-      `).run(payNum, paymentType, 'supplier', supplier_id || null, date, paid, payment_mode, baId, purchaseId, req.user.id);
+      `).run(payNum, paymentType, 'party', party_id || null, date, paid, payment_mode, baId, purchaseId, req.user.id);
 
       // Already reflected in the bill's paid_amount — record the allocation so
-      // supplier balance and payment deletion do not double count it.
+      // party balance and payment deletion do not double count it.
       db.prepare('INSERT INTO payment_allocations (payment_id, purchase_id, amount) VALUES (?,?,?)')
         .run(payRes.lastInsertRowid, purchaseId, paid);
 
       if (baId) partyService.updateBankBalance(baId, paid, isReturn ? 'credit' : 'debit');
     }
 
-    if (supplier_id) partyService.updateSupplierBalance(supplier_id);
+    if (party_id) partyService.updatePartyBalance(party_id);
     return db.prepare('SELECT * FROM purchases WHERE id = ?').get(purchaseId);
   });
 
   try {
     const purchase = createTxn();
     const full = db.prepare(`
-      SELECT p.*, s.name as supplier_name FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id WHERE p.id = ?
+      SELECT p.*, s.name as party_name FROM purchases p LEFT JOIN parties s ON s.id = p.party_id WHERE p.id = ?
     `).get(purchase.id);
     full.items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id = ?').all(purchase.id);
     return success(res, full, 'Purchase created', 201);
@@ -316,7 +316,7 @@ function cancel(req, res) {
     }
     // Same as sales: a cancelled bill releases whatever was paid against it.
     paymentService.releaseDocument('payment_out', purchase.id);
-    if (purchase.supplier_id) partyService.updateSupplierBalance(purchase.supplier_id);
+    if (purchase.party_id) partyService.updatePartyBalance(purchase.party_id);
     return purchase;
   });
 
@@ -333,8 +333,8 @@ module.exports = { list, getById, create, cancel };
 /** Purchase bills, purchase orders and purchase returns are stored as PDFs too. */
 function pdfDocument(req, res) {
   try {
-    const purchase = db.prepare(`SELECT p.*, s.name supplier_name, s.address supplier_address, s.gstin supplier_gstin
-      FROM purchases p LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=?`).get(req.params.id);
+    const purchase = db.prepare(`SELECT p.*, s.name party_name, s.address party_address, s.gstin party_gstin
+      FROM purchases p LEFT JOIN parties s ON s.id=p.party_id WHERE p.id=?`).get(req.params.id);
     if (!purchase) return error(res, 'Purchase not found', 404);
     const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id=?').all(purchase.id);
     const company = db.prepare('SELECT * FROM company_settings WHERE id=1').get() || {};
@@ -348,8 +348,8 @@ function pdfDocument(req, res) {
     setBold(true); doc.fontSize(18); writeText(company.company_name || 'Inventory System');
     doc.fontSize(16); writeText(purchase.bill_type === 'purchase_return' ? 'PURCHASE RETURN' : purchase.bill_type === 'purchase_order' ? 'PURCHASE ORDER' : 'PURCHASE BILL', { align: 'right' });
     setBold(false); doc.fontSize(10); writeText(`No: ${purchase.bill_number}`, { align: 'right' }); writeText(`Date: ${purchase.bill_date}`, { align: 'right' });
-    doc.moveDown(); setBold(true); writeText('Supplier:'); setBold(false); writeText(purchase.supplier_name || '—');
-    if (purchase.supplier_address) writeText(purchase.supplier_address); if (purchase.supplier_gstin) writeText(`GSTIN: ${purchase.supplier_gstin}`);
+    doc.moveDown(); setBold(true); writeText('Party:'); setBold(false); writeText(purchase.party_name || '—');
+    if (purchase.party_address) writeText(purchase.party_address); if (purchase.party_gstin) writeText(`GSTIN: ${purchase.party_gstin}`);
     doc.moveDown(); let y = doc.y; setBold(true); ['#', 'Item', 'Qty', 'Rate', 'Tax', 'Total'].forEach((h, i) => writeText(h, { x: [50, 80, 270, 325, 390, 450][i], y, width: [25, 180, 50, 60, 55, 85][i], align: i === 5 ? 'right' : 'left' }));
     setBold(false); y += 20;
     items.forEach((item, i) => { if (y > 720) { doc.addPage(); y = 50; } writeText(String(i + 1), { x: 50, y, width: 25 }); writeText(item.product_name, { x: 80, y, width: 180 }); writeText(String(item.quantity), { x: 270, y, width: 50 }); writeText(Number(item.unit_price).toFixed(2), { x: 325, y, width: 60 }); writeText(Number(item.tax_amount).toFixed(2), { x: 390, y, width: 55 }); writeText(Number(item.total).toFixed(2), { x: 450, y, width: 85, align: 'right' }); y += 18; });

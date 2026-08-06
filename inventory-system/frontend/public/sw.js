@@ -104,7 +104,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(request.url);
 
   // Never serve API or upload responses from cache — always hit the network.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) {
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/') || url.pathname.startsWith('/lite/')) {
     return;
   }
 

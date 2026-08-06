@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit, AlertTriangle, ArrowLeftRight, SlidersHorizontal, Tag, Download } from 'lucide-react';
+import { Plus, Trash2, Edit, TriangleAlert, ArrowLeftRight, SlidersHorizontal, Tag, Download } from 'lucide-react';
 import { inventoryAPI, productsAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -302,7 +302,7 @@ export function LowStock() {
       </div>
       <div className="card">
         {loading ? <div className="spinner" /> : items.length === 0 ? (
-          <EmptyState icon={AlertTriangle} title="All stocks healthy" message="No products below minimum stock level" />
+          <EmptyState icon={TriangleAlert} title="All stocks healthy" message="No products below minimum stock level" />
         ) : (
           <div className="table-wrap">
             <table>

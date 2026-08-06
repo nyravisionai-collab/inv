@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Plus, Trash2, FileText, Download } from 'lucide-react';
-import { paymentsAPI, customersAPI, suppliersAPI, accountingAPI, settingsAPI } from '../api/client';
+import { paymentsAPI, partysAPI, partysAPI, accountingAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -42,8 +42,8 @@ export default function Payments() {
 
   useEffect(() => {
     load();
-    if (isIn) customersAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
-    else suppliersAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
+    if (isIn) partysAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
+    else partysAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
     accountingAPI.banks().then((r) => setBanks(r.data.data)).catch(() => {});
   }, [location.pathname]);
 
@@ -54,7 +54,7 @@ export default function Payments() {
     try {
       const res = await paymentsAPI.create({
         payment_type: type,
-        party_type: isIn ? 'customer' : 'supplier',
+        party_type: isIn ? 'party' : 'party',
         party_id: form.party_id || null,
         payment_date: form.payment_date,
         amount: Number(form.amount),
@@ -130,7 +130,7 @@ export default function Payments() {
         footer={<><button className="btn btn-secondary" onClick={() => setModal(false)}>{t('Cancel')}</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button></>}
       >
         <div className="form-group">
-          <label className="form-label">{t(isIn ? 'Customer' : 'Supplier')}</label>
+          <label className="form-label">{t(isIn ? 'Party' : 'Party')}</label>
           <select className="form-control" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
             <option value="">{t('Select')}</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   low_stock_alert INTEGER DEFAULT 1,
   backup_auto INTEGER DEFAULT 0,
   allow_negative_stock INTEGER DEFAULT 0,
+  upi_id TEXT,
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 );
 
@@ -133,6 +134,8 @@ CREATE TABLE IF NOT EXISTS products (
   has_expiry INTEGER DEFAULT 0,
   is_active INTEGER DEFAULT 1,
   is_service INTEGER DEFAULT 0,
+  secondary_unit_id INTEGER REFERENCES units(id),
+  conversion_factor REAL DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 );
@@ -201,7 +204,7 @@ CREATE TABLE IF NOT EXISTS stock_adjustment_items (
   difference REAL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS customers (
+CREATE TABLE IF NOT EXISTS parties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   phone TEXT,
@@ -215,27 +218,6 @@ CREATE TABLE IF NOT EXISTS customers (
   credit_limit REAL DEFAULT 0,
   opening_balance REAL DEFAULT 0,
   balance_type TEXT DEFAULT 'debit' CHECK(balance_type IN ('debit','credit')),
-  current_balance REAL DEFAULT 0,
-  notes TEXT,
-  last_reminder_at TEXT,
-  is_active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now','localtime')),
-  updated_at TEXT DEFAULT (datetime('now','localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS suppliers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  phone TEXT,
-  email TEXT,
-  address TEXT,
-  city TEXT,
-  state TEXT,
-  pincode TEXT,
-  gstin TEXT,
-  pan TEXT,
-  opening_balance REAL DEFAULT 0,
-  balance_type TEXT DEFAULT 'credit' CHECK(balance_type IN ('debit','credit')),
   current_balance REAL DEFAULT 0,
   notes TEXT,
   last_reminder_at TEXT,
@@ -264,7 +246,7 @@ CREATE TABLE IF NOT EXISTS sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invoice_number TEXT UNIQUE NOT NULL,
   invoice_type TEXT DEFAULT 'sale' CHECK(invoice_type IN ('sale','estimate','sale_order','delivery_challan','sale_return','pos')),
-  customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+  party_id INTEGER REFERENCES parties(id) ON DELETE SET NULL,
   invoice_date TEXT NOT NULL,
   due_date TEXT,
   reference_number TEXT,
@@ -321,7 +303,7 @@ CREATE TABLE IF NOT EXISTS purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   bill_number TEXT UNIQUE NOT NULL,
   bill_type TEXT DEFAULT 'purchase' CHECK(bill_type IN ('purchase','purchase_order','purchase_return')),
-  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  party_id INTEGER REFERENCES parties(id) ON DELETE SET NULL,
   bill_date TEXT NOT NULL,
   due_date TEXT,
   reference_number TEXT,
@@ -376,8 +358,8 @@ CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   payment_number TEXT UNIQUE NOT NULL,
   payment_type TEXT NOT NULL CHECK(payment_type IN ('payment_in','payment_out')),
-  party_type TEXT CHECK(party_type IN ('customer','supplier')),
-  party_id INTEGER,
+  party_type TEXT CHECK(party_type IN ('customer','supplier','party')),
+  party_id INTEGER REFERENCES parties(id),
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL,
   payment_mode TEXT DEFAULT 'cash' CHECK(payment_mode IN ('cash','bank','upi','cheque','card','other')),
@@ -508,19 +490,18 @@ CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(invoice_date);
-CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sales_party ON sales(party_id);
 CREATE INDEX IF NOT EXISTS idx_sales_type ON sales(invoice_type);
 CREATE INDEX IF NOT EXISTS idx_sales_number ON sales(invoice_number);
 CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(bill_date);
-CREATE INDEX IF NOT EXISTS idx_purchases_supplier ON purchases(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_party ON purchases(party_id);
 CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date);
-CREATE INDEX IF NOT EXISTS idx_payments_party ON payments(party_type, party_id);
+CREATE INDEX IF NOT EXISTS idx_payments_party ON payments(party_id);
 CREATE INDEX IF NOT EXISTS idx_payment_alloc_payment ON payment_allocations(payment_id);
 CREATE INDEX IF NOT EXISTS idx_payment_alloc_sale ON payment_allocations(sale_id);
 CREATE INDEX IF NOT EXISTS idx_payment_alloc_purchase ON payment_allocations(purchase_id);
-CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
-CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
-CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name);
+CREATE INDEX IF NOT EXISTS idx_parties_name ON parties(name);
+CREATE INDEX IF NOT EXISTS idx_parties_phone ON parties(phone);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase ON purchase_items(purchase_id);
 CREATE INDEX IF NOT EXISTS idx_warehouse_stock_product ON warehouse_stock(product_id);

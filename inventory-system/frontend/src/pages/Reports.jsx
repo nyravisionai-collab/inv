@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, FileText, Package, Users, Truck, Receipt, Download, MessageCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
-import { reportsAPI, customersAPI, suppliersAPI, inventoryAPI } from '../api/client';
+import { TrendingUp, FileText, Package, Users, Truck, Receipt, Download, MessageCircle, SlidersHorizontal, RotateCcw, TriangleAlert } from 'lucide-react';
+import { reportsAPI, partiesAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
@@ -20,11 +20,10 @@ const REPORTS = [
   { id: 'purchases', label: 'Purchase Report', icon: Package, color: 'orange' },
   { id: 'expenses', label: 'Expense Report', icon: Receipt, color: 'red' },
   { id: 'stock', label: 'Stock Report', icon: Package, color: 'teal' },
-  { id: 'customers', label: 'Customer Report', icon: Users, color: 'blue' },
-  { id: 'suppliers', label: 'Supplier Report', icon: Truck, color: 'purple' },
+  { id: 'parties', label: 'Party Report', icon: Users, color: 'blue' },
   { id: 'outstanding', label: 'Outstanding & Payable', icon: Receipt, color: 'red' },
   { id: 'product-profit', label: 'Product Profit', icon: TrendingUp, color: 'green' },
-  { id: 'customer-profit', label: 'Customer Profit', icon: Users, color: 'blue' },
+  { id: 'party-profit', label: 'Party Profit', icon: Users, color: 'blue' },
   { id: 'expiry', label: 'Expiry & Batch Report', icon: Package, color: 'red' },
   { id: 'warehouse-stock', label: 'Warehouse Stock Report', icon: Package, color: 'teal' },
 ];
@@ -38,8 +37,7 @@ export default function Reports() {
   const { formatMoney, t } = useAuth();
   const [exportMessage, setExportMessage] = useState('');
 
-  const [selectedCustomers, setSelectedCustomers] = useState({});
-  const [selectedSuppliers, setSelectedSuppliers] = useState({});
+  const [selectedParties, setSelectedParties] = useState({});
   const [expiryDays, setExpiryDays] = useState(90);
   const [expiredOnly, setExpiredOnly] = useState(false);
   const [warehouseFilter, setWarehouseFilter] = useState('');
@@ -77,11 +75,10 @@ export default function Reports() {
         case 'purchases': res = await reportsAPI.purchases(params); break;
         case 'expenses': res = await reportsAPI.expenses(params); break;
         case 'stock': res = await reportsAPI.stock(); break;
-        case 'customers': res = await reportsAPI.customers(); break;
-        case 'suppliers': res = await reportsAPI.suppliers(); break;
+        case 'parties': res = await reportsAPI.parties(); break;
         case 'outstanding': res = await reportsAPI.outstanding(); break;
         case 'product-profit': res = await reportsAPI.productProfit(params); break;
-        case 'customer-profit': res = await reportsAPI.customerProfit(params); break;
+        case 'party-profit': res = await reportsAPI.partyProfit(params); break;
         case 'expiry': res = await reportsAPI.expiry({ days: expiryDays }); break;
         case 'warehouse-stock': res = await reportsAPI.warehouseStock(); break;
         default: break;
@@ -99,39 +96,23 @@ export default function Reports() {
     if (active === 'expiry') load('expiry');
   }, [expiryDays]);
 
-  const handleCustomerRemind = async (id) => {
+  const handlePartyRemind = async (id) => {
     try {
-      const r = await customersAPI.remind(id);
-      window.open(r.data.data.link, '_blank');
+      const r = await partiesAPI.remind(id);
+      if (r.data?.data?.link) {
+        window.open(r.data.data.link, '_blank');
+      }
       load(active);
     } catch {
       error(t('Failed to send reminder'));
     }
   };
 
-  const handleSupplierRemind = async (id) => {
-    try {
-      const r = await suppliersAPI.remind(id);
-      window.open(r.data.data.link, '_blank');
-      load(active);
-    } catch {
-      error(t('Failed to send reminder'));
-    }
-  };
-
-  const handleBulkRemindCustomers = () => {
-    const ids = Object.entries(selectedCustomers).filter(([_, v]) => v).map(([id]) => id);
-    if (!ids.length) return error(t('Select at least one customer'));
+  const handleBulkRemindParties = () => {
+    const ids = Object.entries(selectedParties).filter(([_, v]) => v).map(([id]) => id);
+    if (!ids.length) return error(t('Select at least one party'));
     ids.forEach((id, idx) => {
-      setTimeout(() => handleCustomerRemind(id), idx * 800);
-    });
-  };
-
-  const handleBulkRemindSuppliers = () => {
-    const ids = Object.entries(selectedSuppliers).filter(([_, v]) => v).map(([id]) => id);
-    if (!ids.length) return error(t('Select at least one supplier'));
-    ids.forEach((id, idx) => {
-      setTimeout(() => handleSupplierRemind(id), idx * 800);
+      setTimeout(() => handlePartyRemind(id), idx * 800);
     });
   };
 
@@ -310,11 +291,11 @@ export default function Reports() {
           <div className="card" style={{ marginTop: 16 }}>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>{t('Date')}</th><th>{t('Bill')}</th><th>{t('Supplier')}</th><th>{t('Total')}</th><th>{t('Paid')}</th><th>{t('Status')}</th></tr></thead>
+                <thead><tr><th>{t('Date')}</th><th>{t('Bill')}</th><th>{t('Party')}</th><th>{t('Total')}</th><th>{t('Paid')}</th><th>{t('Status')}</th></tr></thead>
                 <tbody>
                   {(data.rows || []).map((r, i) => (
                     <tr key={i}>
-                      <td data-label={t('Date')}>{r.date}</td><td data-label={t('Bill')}>{r.bill_number}</td><td data-label={t('Supplier')}>{r.supplier || '—'}</td>
+                      <td data-label={t('Date')}>{r.date}</td><td data-label={t('Bill')}>{r.bill_number}</td><td data-label={t('Party')}>{r.party || '—'}</td>
                       <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(r.total)}</td>
                       <td data-label={t('Paid')}>{formatMoney(r.paid)}</td>
                       <td data-label={t('Status')}><span className={`badge ${r.payment_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{t(r.payment_status)}</span></td>
@@ -392,7 +373,7 @@ export default function Reports() {
       );
     }
 
-    if (active === 'customers' || active === 'suppliers') {
+    if (active === 'parties') {
       const rows = Array.isArray(data) ? data : [];
       return (
         <div className="card">
@@ -401,7 +382,7 @@ export default function Reports() {
               <thead>
                 <tr>
                   <th>{t('Name')}</th><th>{t('Phone')}</th>
-                  <th>{t(active === 'customers' ? 'Sales' : 'Purchases')}</th>
+                  <th>{t('Sales')}</th>
                   <th>{t('Invoices')}</th><th>{t('Balance')}</th>
                 </tr>
               </thead>
@@ -410,7 +391,7 @@ export default function Reports() {
                   <tr key={r.id}>
                     <td data-label={t('Name')} style={{ fontWeight: 500 }}>{r.name}</td>
                     <td data-label={t('Phone')}>{r.phone || '—'}</td>
-                    <td data-label={active === 'customers' ? t('Sales') : t('Purchases')} style={{ fontWeight: 600 }}>{formatMoney(r.total_sales || r.total_purchases)}</td>
+                    <td data-label={t('Sales')} style={{ fontWeight: 600 }}>{formatMoney(r.total_sales || r.total_purchases)}</td>
                     <td data-label={t('Invoices')}>{r.total_invoices || r.total_bills || 0}</td>
                     <td data-label={t('Balance')} style={{ fontWeight: 600, color: r.current_balance > 0 ? 'var(--error)' : 'inherit' }}>{formatMoney(r.current_balance)}</td>
                   </tr>
@@ -432,13 +413,13 @@ export default function Reports() {
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
             <div className="stat-card">
               <div>
-                <div className="stat-label">{t('Total Receivable (Customers)')}</div>
+                <div className="stat-label">{t('Total Receivable (Parties)')}</div>
                 <div className="stat-value" style={{ fontSize: 20, color: 'var(--success)' }}>{formatMoney(custTotal)}</div>
               </div>
             </div>
             <div className="stat-card">
               <div>
-                <div className="stat-label">{t('Total Payable (Suppliers)')}</div>
+                <div className="stat-label">{t('Total Payable (Parties)')}</div>
                 <div className="stat-value" style={{ fontSize: 20, color: 'var(--error)' }}>{formatMoney(suppTotal)}</div>
               </div>
             </div>
@@ -452,9 +433,9 @@ export default function Reports() {
 
           <div className="card" style={{ marginBottom: 20 }}>
             <div className="card-header">
-              <div className="card-title">{t('Customer Outstanding')}</div>
-              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindCustomers}>
-                <MessageCircle size={16} /> {t('Remind Selected Overdue Customers')}
+              <div className="card-title">{t('Party Outstanding')}</div>
+              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindParties}>
+                <MessageCircle size={16} /> {t('Remind Selected Overdue Parties')}
               </button>
             </div>
             <div className="table-wrap">
@@ -463,10 +444,10 @@ export default function Reports() {
                   <tr>
                     <th style={{ width: 40 }}><input type="checkbox" onChange={(e) => {
                       const all = {};
-                      if (e.target.checked) (data.customers || []).forEach((c) => { all[c.id] = true; });
-                      setSelectedCustomers(all);
+                      if (e.target.checked) (data.receivables || []).forEach((c) => { all[c.id] = true; });
+                      setSelectedParties(all);
                     }} /></th>
-                    <th>{t('Customer')}</th>
+                    <th>{t('Party')}</th>
                     <th>{t('Phone')}</th>
                     <th>{t('Pending Invoices')}</th>
                     <th>{t('Outstanding')}</th>
@@ -475,12 +456,12 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.customers || []).length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No customer dues')}</td></tr>
+                  {(data.receivables || []).length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No party dues')}</td></tr>
                   )}
-                  {(data.customers || []).map((c) => (
+                  {(data.receivables || []).map((c) => (
                     <tr key={c.id}>
-                      <td><input type="checkbox" checked={!!selectedCustomers[c.id]} onChange={(e) => setSelectedCustomers({ ...selectedCustomers, [c.id]: e.target.checked })} /></td>
+                      <td><input type="checkbox" checked={!!selectedParties[c.id]} onChange={(e) => setSelectedParties({ ...selectedParties, [c.id]: e.target.checked })} /></td>
                       <td style={{ fontWeight: 500 }}>{c.name}</td>
                       <td>{c.phone || '—'}</td>
                       <td>
@@ -496,7 +477,7 @@ export default function Reports() {
                       <td style={{ fontWeight: 700, color: 'var(--error)' }}>{formatMoney(c.outstanding)}</td>
                       <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{c.last_reminder_at ? new Date(c.last_reminder_at).toLocaleString() : t('Never')}</td>
                       <td>
-                        <button className="btn btn-sm btn-success" onClick={() => handleCustomerRemind(c.id)} style={{ gap: 4 }}>
+                        <button className="btn btn-sm btn-success" onClick={() => handlePartyRemind(c.id)} style={{ gap: 4 }}>
                           <MessageCircle size={14} /> WhatsApp
                         </button>
                       </td>
@@ -509,9 +490,9 @@ export default function Reports() {
 
           <div className="card">
             <div className="card-header">
-              <div className="card-title">{t('Supplier Payable')}</div>
-              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindSuppliers}>
-                <MessageCircle size={16} /> {t('Remind Selected Payable Suppliers')}
+              <div className="card-title">{t('Party Payable')}</div>
+              <button className="btn btn-sm btn-primary" onClick={handleBulkRemindParties}>
+                <MessageCircle size={16} /> {t('Remind Selected Payable Parties')}
               </button>
             </div>
             <div className="table-wrap">
@@ -520,10 +501,10 @@ export default function Reports() {
                   <tr>
                     <th style={{ width: 40 }}><input type="checkbox" onChange={(e) => {
                       const all = {};
-                      if (e.target.checked) (data.suppliers || []).forEach((s) => { all[s.id] = true; });
-                      setSelectedSuppliers(all);
+                      if (e.target.checked) (data.payables || []).forEach((s) => { all[s.id] = true; });
+                      setSelectedParties(all);
                     }} /></th>
-                    <th>{t('Supplier')}</th>
+                    <th>{t('Party')}</th>
                     <th>{t('Phone')}</th>
                     <th>{t('Pending Bills')}</th>
                     <th>{t('Payable')}</th>
@@ -532,12 +513,12 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.suppliers || []).length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No supplier dues')}</td></tr>
+                  {(data.payables || []).length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>{t('No party dues')}</td></tr>
                   )}
-                  {(data.suppliers || []).map((s) => (
+                  {(data.payables || []).map((s) => (
                     <tr key={s.id}>
-                      <td><input type="checkbox" checked={!!selectedSuppliers[s.id]} onChange={(e) => setSelectedSuppliers({ ...selectedSuppliers, [s.id]: e.target.checked })} /></td>
+                      <td><input type="checkbox" checked={!!selectedParties[s.id]} onChange={(e) => setSelectedParties({ ...selectedParties, [s.id]: e.target.checked })} /></td>
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
                       <td>{s.phone || '—'}</td>
                       <td>
@@ -553,7 +534,7 @@ export default function Reports() {
                       <td style={{ fontWeight: 700, color: 'var(--error)' }}>{formatMoney(s.payable || s.outstanding)}</td>
                       <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.last_reminder_at ? new Date(s.last_reminder_at).toLocaleString() : t('Never')}</td>
                       <td>
-                        <button className="btn btn-sm btn-success" onClick={() => handleSupplierRemind(s.id)} style={{ gap: 4 }}>
+                        <button className="btn btn-sm btn-success" onClick={() => handlePartyRemind(s.id)} style={{ gap: 4 }}>
                           <MessageCircle size={14} /> WhatsApp
                         </button>
                       </td>
@@ -623,7 +604,7 @@ export default function Reports() {
       );
     }
 
-    if (active === 'customer-profit') {
+    if (active === 'party-profit') {
       const rows = data.rows || [];
       const totalInvoices = rows.reduce((s, r) => s + Number(r.invoices || 0), 0);
       const totalSales = rows.reduce((s, r) => s + Number(r.sales || 0), 0);
@@ -634,7 +615,7 @@ export default function Reports() {
       return (
         <div>
           <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
-            <div className="stat-card"><div><div className="stat-label">{t('Customers')}</div><div className="stat-value">{rows.length}</div></div></div>
+            <div className="stat-card"><div><div className="stat-label">{t('Parties')}</div><div className="stat-value">{rows.length}</div></div></div>
             <div className="stat-card"><div><div className="stat-label">{t('Total Sales')}</div><div className="stat-value" style={{ fontSize: 18 }}>{formatMoney(totalSales)}</div></div></div>
             <div className="stat-card"><div><div className="stat-label">{t('Total Profit')}</div><div className="stat-value" style={{ fontSize: 18, color: totalProfit >= 0 ? 'var(--success)' : 'var(--error)' }}>{formatMoney(totalProfit)}</div></div></div>
             <div className="stat-card"><div><div className="stat-label">{t('Profit Margin')}</div><div className="stat-value" style={{ fontSize: 18 }}>{avgMargin}%</div></div></div>
@@ -643,7 +624,7 @@ export default function Reports() {
             <div className="table-wrap">
               <table>
                 <thead>
-                  <tr><th>{t('Customer')}</th><th>{t('Invoices')}</th><th>{t('Sales')}</th><th>{t('Cost')}</th><th>{t('Profit')}</th><th>{t('Margin %')}</th></tr>
+                  <tr><th>{t('Party')}</th><th>{t('Invoices')}</th><th>{t('Sales')}</th><th>{t('Cost')}</th><th>{t('Profit')}</th><th>{t('Margin %')}</th></tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
@@ -653,7 +634,7 @@ export default function Reports() {
                     const margin = Number(r.sales) > 0 ? ((Number(r.profit) / Number(r.sales)) * 100).toFixed(1) : '0.0';
                     return (
                       <tr key={i}>
-                        <td style={{ fontWeight: 500 }}>{r.customer_name}</td>
+                        <td style={{ fontWeight: 500 }}>{r.party_name}</td>
                         <td>{r.invoices}</td>
                         <td>{formatMoney(r.sales)}</td>
                         <td>{formatMoney(r.cost)}</td>
@@ -841,7 +822,7 @@ export default function Reports() {
       );
     }
 
-    const rows = data.rows || data.customers || [];
+    const rows = data.rows || data.parties || [];
     return <div className="card"><div className="card-body"><pre style={{ whiteSpace: 'pre-wrap', overflow: 'auto' }}>{JSON.stringify(data.rows ? rows : data, null, 2)}</pre></div></div>;
   };
 
@@ -853,7 +834,7 @@ export default function Reports() {
           <h1 className="page-title">{t('Reports')}</h1>
           <p className="page-subtitle">{t('Business analytics and financial reports')}</p>
         </div>
-        {active && !['stock', 'customers', 'suppliers', 'balance-sheet'].includes(active) && (
+        {active && !['stock', 'parties', 'balance-sheet'].includes(active) && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input className="form-control" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }} />
             <span>to</span>

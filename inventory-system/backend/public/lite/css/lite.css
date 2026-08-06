@@ -1,0 +1,248 @@
+/*
+ * Inventory Lite — stylesheet for very old mobile browsers.
+ *
+ * Rules of the house:
+ *   - No flexbox/grid: Windows Phone 8.1's IE11 has only the buggy 2012
+ *     flexbox draft, so every layout here uses floats + overflow:hidden.
+ *   - No CSS custom properties, calc() nesting, or :is()/:where().
+ *   - Touch targets are >= 40px tall because these are resistive-era screens.
+ */
+
+/* Windows Phone 8.1 IE needs the CSS viewport rule, not just the meta tag. */
+@-ms-viewport { width: device-width; }
+@viewport { width: device-width; }
+
+/* Gujarati font bundled so phones without an Indic font still render text. */
+@font-face {
+  font-family: 'NotoGuj';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/noto-sans-gujarati-latin-400-normal.woff2') format('woff2'),
+       url('../fonts/noto-sans-gujarati-latin-400-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF;
+}
+@font-face {
+  font-family: 'NotoGuj';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/noto-sans-gujarati-gujarati-400-normal.woff2') format('woff2'),
+       url('../fonts/noto-sans-gujarati-gujarati-400-normal.woff') format('woff');
+  unicode-range: U+0964-0965, U+0A80-0AFF, U+200C-200D, U+20B9;
+}
+@font-face {
+  font-family: 'NotoGuj';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/noto-sans-gujarati-latin-700-normal.woff2') format('woff2'),
+       url('../fonts/noto-sans-gujarati-latin-700-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF;
+}
+@font-face {
+  font-family: 'NotoGuj';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/noto-sans-gujarati-gujarati-700-normal.woff2') format('woff2'),
+       url('../fonts/noto-sans-gujarati-gujarati-700-normal.woff') format('woff');
+  unicode-range: U+0964-0965, U+0A80-0AFF, U+200C-200D, U+20B9;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: 'NotoGuj', 'Nirmala UI', 'Segoe UI', Arial, sans-serif;
+  background: #eef1f5;
+  color: #212121;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* ------------------------------- header ------------------------------- */
+#hdr {
+  position: fixed; top: 0; left: 0; right: 0; height: 48px;
+  background: #1976d2; color: #fff; z-index: 20;
+  overflow: hidden;
+}
+#hBack {
+  float: left; width: 40px; height: 48px; padding: 0;
+  background: transparent; border: 0; color: #fff;
+  font-size: 22px; line-height: 48px; font-family: inherit;
+}
+#hTitle {
+  float: left; padding: 13px 8px; font-size: 16px; font-weight: bold;
+  white-space: nowrap; overflow: hidden;
+}
+#hLang {
+  float: right; margin: 8px 8px 8px 4px; padding: 7px 10px;
+  background: #fff; color: #1976d2; border: 0; border-radius: 4px;
+  font-size: 13px; font-weight: bold; min-height: 32px; font-family: inherit;
+}
+#hBell {
+  float: right; margin: 8px 2px; padding: 7px 9px; position: relative;
+  background: #1565c0; color: #fff; border: 0; border-radius: 4px;
+  font-size: 13px; min-height: 32px; font-family: inherit;
+}
+#hBell .dot {
+  position: absolute; top: -4px; right: -4px; min-width: 17px; height: 17px;
+  background: #c62828; border-radius: 9px; font-size: 11px; line-height: 17px;
+  padding: 0 4px; font-weight: bold;
+}
+
+#view { padding: 56px 8px 68px; max-width: 760px; margin: 0 auto; }
+
+/* ----------------------------- bottom tabs ----------------------------- */
+#tabs {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 56px;
+  background: #fff; border-top: 1px solid #ccc; z-index: 20;
+  overflow: hidden;
+}
+.tabbtn {
+  float: left; width: 20%; height: 56px; padding: 6px 1px;
+  background: #fff; border: 0; border-top: 3px solid #fff;
+  color: #666; font-size: 12px; text-align: center;
+  font-family: inherit; overflow: hidden;
+}
+.tabbtn.on { color: #1976d2; font-weight: bold; border-top-color: #1976d2; }
+
+/* ----------------------------- shared blocks --------------------------- */
+.card {
+  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  padding: 10px; margin-bottom: 8px; overflow: hidden;
+}
+.cardh { font-weight: bold; font-size: 15px; margin-bottom: 8px; color: #333; }
+.muted { color: #777; font-size: 13px; }
+.nowrap { white-space: nowrap; }
+.right { text-align: right; }
+.center { text-align: center; }
+.pad { padding: 20px 10px; }
+.red { color: #c62828; }
+.green { color: #2e7d32; }
+.mt { margin-top: 8px; }
+
+.kpis { overflow: hidden; margin: 0 -4px; }
+.kpi { float: left; width: 50%; padding: 0 4px 8px; }
+.kpiin {
+  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  padding: 10px 6px; text-align: center; min-height: 74px;
+}
+.kpival { font-size: 18px; font-weight: bold; color: #1976d2; word-wrap: break-word; }
+.kpival.green { color: #2e7d32; }
+.kpival.orange { color: #ef6c00; }
+.kpival.red { color: #c62828; }
+.kpilbl { color: #666; font-size: 12px; }
+
+.row {
+  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  padding: 10px; margin-bottom: 6px; overflow: hidden;
+}
+.rowl { float: left; max-width: 68%; }
+.rowr { float: right; text-align: right; margin-left: 8px; }
+.bigname { font-weight: bold; font-size: 15px; word-wrap: break-word; }
+.chip {
+  display: inline-block; padding: 1px 8px; border-radius: 10px;
+  font-size: 12px; color: #fff; background: #78909c;
+}
+.chip.green { background: #2e7d32; }
+.chip.orange { background: #ef6c00; }
+.chip.red { background: #c62828; }
+.chip.blue { background: #1976d2; }
+.chip.grey { background: #78909c; }
+.lowstock .bigname { color: #c62828; }
+
+hr.sp { border: 0; border-top: 1px dashed #ccc; margin: 10px 0; }
+
+/* -------------------------------- forms -------------------------------- */
+input, select, textarea {
+  display: block; width: 100%; padding: 10px; margin-bottom: 8px;
+  font-size: 16px; font-family: inherit; color: #212121;
+  border: 1px solid #aaa; border-radius: 6px; background: #fff;
+}
+textarea { min-height: 62px; }
+label.fld { display: block; font-size: 13px; color: #555; margin-bottom: 2px; }
+.fldrow { overflow: hidden; margin: 0 -3px; }
+.fldhalf { float: left; width: 50%; padding: 0 3px; }
+
+.btn {
+  display: block; width: 100%; padding: 12px; margin-top: 8px;
+  background: #1976d2; color: #fff; border: 0; border-radius: 6px;
+  font-size: 16px; font-weight: bold; font-family: inherit; text-align: center;
+  text-decoration: none;
+}
+.btn.green { background: #2e7d32; }
+.btn.red { background: #c62828; }
+.btn.grey { background: #eceff1; color: #37474f; }
+.btn.small { width: auto; padding: 8px 12px; font-size: 14px; margin-top: 0; }
+.btn[disabled] { background: #9e9e9e; }
+.btnrow { overflow: hidden; margin: 8px -3px 0; }
+.btnrow .btn { margin-top: 0; }
+.btnhalf { float: left; width: 50%; padding: 0 3px; }
+.btnthird { float: left; width: 33.33%; padding: 0 3px; }
+
+.qbtn {
+  width: 42px; height: 40px; font-size: 20px; line-height: 1;
+  background: #eceff1; color: #1565c0; border: 1px solid #b0bec5;
+  border-radius: 6px; font-weight: bold; font-family: inherit;
+}
+.qinput { width: 68px; margin-bottom: 0; text-align: center; padding: 8px 3px; }
+.qcell { float: left; margin: 4px 5px 0 0; }
+.qcell input { margin-bottom: 0; }
+
+/* segmented control (document type / filters) */
+.seg { overflow: hidden; margin-bottom: 8px; }
+.segb {
+  float: left; padding: 8px 10px; margin: 0 4px 4px 0;
+  background: #fff; border: 1px solid #b0bec5; border-radius: 14px;
+  color: #37474f; font-size: 13px; font-family: inherit;
+}
+.segb.on { background: #1976d2; border-color: #1976d2; color: #fff; font-weight: bold; }
+
+/* -------------------------------- tables ------------------------------- */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th, .tbl td {
+  border-bottom: 1px solid #e0e0e0; padding: 6px 4px;
+  text-align: left; vertical-align: top; word-wrap: break-word;
+}
+.tbl th { background: #f5f7fa; color: #455a64; font-weight: bold; }
+.tbl td.n, .tbl th.n { text-align: right; white-space: nowrap; }
+.tblwrap { overflow-x: auto; }
+
+.kv { overflow: hidden; padding: 3px 0; border-bottom: 1px dotted #e6e6e6; }
+.kv .k { float: left; color: #666; font-size: 13px; }
+.kv .v { float: right; text-align: right; font-weight: bold; }
+
+/* --------------------------------- menu -------------------------------- */
+.navsec { font-size: 12px; color: #78909c; text-transform: uppercase; margin: 12px 2px 4px; font-weight: bold; }
+.navitem {
+  display: block; width: 100%; text-align: left; padding: 12px 10px;
+  background: #fff; border: 1px solid #ddd; border-radius: 6px;
+  margin-bottom: 4px; font-size: 15px; font-family: inherit; color: #212121;
+  text-decoration: none;
+}
+
+/* -------------------------------- toast -------------------------------- */
+#toast {
+  display: none; position: fixed; top: 52px; left: 8px; right: 8px;
+  max-width: 744px; margin: 0 auto; padding: 12px; border-radius: 6px;
+  color: #fff; z-index: 50; font-size: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+#toast.ok { background: #2e7d32; }
+#toast.err { background: #c62828; }
+#toast.info { background: #37474f; }
+
+/* --------------------------- printable barcodes ------------------------ */
+.bcgrid { overflow: hidden; margin: 0 -3px; }
+.bccell { float: left; width: 50%; padding: 0 3px 6px; }
+.bcin { border: 1px solid #ccc; border-radius: 4px; padding: 6px; text-align: center; background: #fff; }
+.bcin img { width: 90px; height: 90px; display: block; margin: 0 auto 4px; }
+.bcin .nm { font-size: 12px; font-weight: bold; word-wrap: break-word; }
+.bcin .cd { font-size: 11px; color: #666; }
+
+@media print {
+  #hdr, #tabs, #toast, .noprint { display: none !important; }
+  #view { padding: 0; max-width: none; }
+  body { background: #fff; }
+}

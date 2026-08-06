@@ -8,11 +8,13 @@ import { useConfirm } from '../context/ConfirmContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
+import BarcodeScanner from '../components/BarcodeScanner';
 
 const empty = {
   name: '', sku: '', barcode: '', hsn_code: '', description: '',
-  category_id: '', brand_id: '', unit_id: '', purchase_price: '', selling_price: '',
-  mrp: '', tax_rate: '18', min_stock: '5', opening_stock: '0', is_service: false,
+  category_id: '', brand_id: '', unit_id: '', secondary_unit_id: '', conversion_factor: 1,
+  purchase_price: '', selling_price: '',
+  mrp: '', tax_rate: '0', min_stock: '5', opening_stock: '0', is_service: false,
 };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -38,6 +40,7 @@ export default function Products() {
   const [stickerModal, setStickerModal] = useState(false);
   const [stickerItems, setStickerItems] = useState({});
   const [labelSize, setLabelSize] = useState('medium');
+  const [scanning, setScanning] = useState(false);
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
   const confirm = useConfirm();
@@ -82,7 +85,8 @@ export default function Products() {
     setForm({
       name: p.name, sku: p.sku || '', barcode: p.barcode || '', hsn_code: p.hsn_code || '',
       description: p.description || '', category_id: p.category_id || '', brand_id: p.brand_id || '',
-      unit_id: p.unit_id || '', purchase_price: p.purchase_price, selling_price: p.selling_price,
+      unit_id: p.unit_id || '', secondary_unit_id: p.secondary_unit_id || '', conversion_factor: p.conversion_factor || 1,
+      purchase_price: p.purchase_price, selling_price: p.selling_price,
       mrp: p.mrp, tax_rate: p.tax_rate, min_stock: p.min_stock, opening_stock: p.current_stock,
       is_service: !!p.is_service,
       image: p.image || '',
@@ -222,7 +226,7 @@ export default function Products() {
                 <thead>
                   <tr>
                     <th>{t('Photo')}</th><th>{t('Name')}</th><th>{t('SKU')}</th><th>{t('Category')}</th><th>{t('Purchase')}</th><th>{t('Selling')}</th>
-                    <th>{t('Stock')}</th><th>{t('Tax')}</th><th>{t('Actions')}</th>
+                    <th>{t('Stock')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -243,7 +247,6 @@ export default function Products() {
                           {p.current_stock} {p.unit_short || ''}
                         </span>
                       </td>
-                      <td data-label={t('Tax')}>{p.tax_rate}%</td>
                       <td data-label={t('Actions')}>
                         <div className="table-actions">
                           <button className="btn-icon" onClick={() => showQr(p.id)} title="Barcode"><QrCode size={16} /></button>
@@ -307,7 +310,10 @@ export default function Products() {
           </div>
           <div className="form-group">
             <label className="form-label">{t('Barcode')}</label>
-            <input className="form-control" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="form-control" value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+              <button type="button" className="btn btn-secondary" onClick={() => setScanning(true)}><QrCode size={18} /></button>
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">{t('HSN Code')}</label>
@@ -328,12 +334,25 @@ export default function Products() {
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">{t('Unit')}</label>
+            <label className="form-label">{t('Primary Unit')}</label>
             <select className="form-control" value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })}>
               <option value="">{t('Select')}</option>
               {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.short_name})</option>)}
             </select>
           </div>
+          <div className="form-group">
+            <label className="form-label">{t('Secondary Unit')}</label>
+            <select className="form-control" value={form.secondary_unit_id} onChange={(e) => setForm({ ...form, secondary_unit_id: e.target.value })}>
+              <option value="">{t('None')}</option>
+              {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.short_name})</option>)}
+            </select>
+          </div>
+          {form.secondary_unit_id && (
+            <div className="form-group">
+              <label className="form-label">{t('Conversion Factor')} (1 {units.find((u) => u.id === Number(form.secondary_unit_id))?.short_name} = ? {units.find((u) => u.id === Number(form.unit_id))?.short_name})</label>
+              <input className="form-control" type="number" value={form.conversion_factor} onChange={(e) => setForm({ ...form, conversion_factor: e.target.value })} />
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">{t('Purchase Price')}</label>
             <input className="form-control" type="number" value={form.purchase_price} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} />
@@ -347,12 +366,6 @@ export default function Products() {
             <input className="form-control" type="number" value={form.mrp} onChange={(e) => setForm({ ...form, mrp: e.target.value })} />
           </div>
           <div className="form-group">
-            <label className="form-label">{t('Tax Rate %')}</label>
-            <select className="form-control" value={form.tax_rate} onChange={(e) => setForm({ ...form, tax_rate: e.target.value })}>
-              {[0, 5, 12, 18, 28].map((t) => <option key={t} value={t}>{t}%</option>)}
-            </select>
-          </div>
-          <div className="form-group">
             <label className="form-label">{t('Min Stock')}</label>
             <input className="form-control" type="number" value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: e.target.value })} />
           </div>
@@ -364,6 +377,16 @@ export default function Products() {
           )}
         </div>
       </Modal>
+
+      {scanning && (
+        <BarcodeScanner
+          onScan={(code) => {
+            setForm({ ...form, barcode: code });
+            setScanning(false);
+          }}
+          onClose={() => setScanning(false)}
+        />
+      )}
 
       <Modal open={!!qrModal} onClose={() => setQrModal(null)} title={t('Barcode / QR Code')}>
         {qrModal && (

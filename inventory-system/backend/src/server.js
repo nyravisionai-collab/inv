@@ -136,6 +136,12 @@ async function bootstrap() {
 
   app.use('/uploads', express.static(path.resolve(config.uploadDir)));
 
+  // Lite legacy client (plain ES5 + XHR). Phones and browsers too old to run
+  // the React build — Windows Phone IE11 / old Edge in particular — get a
+  // working inventory UI here. Registered before the SPA catch-all below so
+  // /lite always wins when both are served from the same port.
+  app.use('/lite', express.static(path.join(__dirname, '../public/lite')));
+
   app.use('/api', require('./routes'));
 
   // Optional: serve built frontend from same origin (production single-port)

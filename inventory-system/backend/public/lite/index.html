@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<!--
+  Inventory Lite — the full inventory system for old browsers.
+
+  Written in plain ES5 with XMLHttpRequest so it works on Windows Phone
+  (Internet Explorer Mobile 11 / old Edge), feature phones with IE-class
+  browsers, and any other device too old to run the React app. No build step
+  and no dependencies: classic scripts served by the backend at /lite/.
+
+  Feature parity with the React client is the goal — POS, all sale and
+  purchase document types, parties and ledgers, stock, accounting, the full
+  report set, settings, users and backups. Keep it that way when adding
+  features to the main app.
+
+  Modern browsers never see this: frontend/index.html redirects
+  module-incapable browsers here automatically.
+-->
+<html lang="gu">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="format-detection" content="telephone=no" />
+<title>Inventory Lite</title>
+<link rel="stylesheet" href="css/lite.css" />
+</head>
+<body>
+
+<div id="hdr">
+  <button type="button" id="hBack" onclick="Lite.back()" style="display:none;">&lsaquo;</button>
+  <span id="hTitle">Inventory Lite</span>
+  <button type="button" id="hLang" onclick="Lite.toggleLang()">EN</button>
+  <button type="button" id="hBell" onclick="Lite.go('notifications')">&#9993;</button>
+</div>
+
+<div id="view"><div class="center pad muted">…</div></div>
+
+<div id="tabs">
+  <button type="button" class="tabbtn on" id="tb_home"  onclick="Lite.go('home')">Home</button>
+  <button type="button" class="tabbtn"    id="tb_pos"   onclick="Lite.go('pos')">Sale</button>
+  <button type="button" class="tabbtn"    id="tb_stock" onclick="Lite.go('stock')">Stock</button>
+  <button type="button" class="tabbtn"    id="tb_sales" onclick="Lite.go('sales','sale,pos')">Bills</button>
+  <button type="button" class="tabbtn"    id="tb_menu"  onclick="Lite.go('menu')">More</button>
+</div>
+
+<div id="toast"></div>
+
+<noscript>
+  <div style="padding:60px 12px;font-size:16px;">
+    આ એપ્લિકેશન માટે JavaScript જરૂરી છે.<br />This app requires JavaScript.
+  </div>
+</noscript>
+
+<!--
+  Load order matters: i18n and core define the globals every screen uses,
+  app.js defines the router, then each screen registers itself. Plain
+  <script src> (no defer/module) is the only form guaranteed to run in order
+  on IE-era mobile browsers.
+-->
+<script src="js/i18n.js"></script>
+<script src="js/core.js"></script>
+<script src="js/app.js"></script>
+<script src="js/screens/home.js"></script>
+<script src="js/screens/pos.js"></script>
+<script src="js/screens/parties.js"></script>
+<script src="js/screens/documents.js"></script>
+<script src="js/screens/inventory.js"></script>
+<script src="js/screens/accounting.js"></script>
+<script src="js/screens/reports.js"></script>
+<script src="js/screens/system.js"></script>
+<script>Lite.boot();</script>
+
+</body>
+</html>

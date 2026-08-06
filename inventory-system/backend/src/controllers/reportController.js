@@ -77,12 +77,12 @@ function balanceSheet(req, res) {
 
     const receivables = db.prepare(`
       SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END),0) as total
-      FROM customers WHERE is_active = 1
+      FROM parties WHERE is_active = 1
     `).get().total;
 
     const payables = db.prepare(`
       SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END),0) as total
-      FROM suppliers WHERE is_active = 1
+      FROM parties WHERE is_active = 1
     `).get().total;
 
     const totalAssets = cashAndBank.reduce((s, a) => s + a.current_balance, 0) + stockValue + receivables;
@@ -134,7 +134,7 @@ function gstReport(req, res) {
         COALESCE((SELECT SUM(si.taxable_amount) FROM sale_items si WHERE si.sale_id = s.id), s.subtotal) as subtotal,
         s.discount_amount, s.tax_amount, s.grand_total,
         CASE WHEN c.state IS NULL OR c.state = ? THEN 'intra' ELSE 'inter' END as supply_type
-      FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
+      FROM sales s LEFT JOIN parties c ON c.id = s.party_id
       WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
       ORDER BY s.invoice_date
     `).all(companyState, from, to);
@@ -144,7 +144,7 @@ function gstReport(req, res) {
         COALESCE((SELECT SUM(pi.taxable_amount) FROM purchase_items pi WHERE pi.purchase_id = p.id), p.subtotal) as subtotal,
         p.discount_amount, p.tax_amount, p.grand_total,
         CASE WHEN s.state IS NULL OR s.state = ? THEN 'intra' ELSE 'inter' END as supply_type
-      FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id
+      FROM purchases p LEFT JOIN parties s ON s.id = p.party_id
       WHERE p.bill_type='purchase' AND p.status='completed' AND p.bill_date BETWEEN ? AND ?
       ORDER BY p.bill_date
     `).all(companyState, from, to);
@@ -256,9 +256,9 @@ function salesReport(req, res) {
     if (group_by === 'customer') {
       rows = db.prepare(`
         SELECT c.name, COUNT(*) as invoices, SUM(s.grand_total) as total, SUM(s.paid_amount) as paid, SUM(s.balance_amount) as balance
-        FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
+        FROM sales s LEFT JOIN parties c ON c.id = s.party_id
         WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ?
-        GROUP BY s.customer_id ORDER BY total DESC
+        GROUP BY s.party_id ORDER BY total DESC
       `).all(from, to);
     } else if (group_by === 'product') {
       rows = db.prepare(`
@@ -294,7 +294,7 @@ function purchaseReport(req, res) {
 
     const rows = db.prepare(`
       SELECT p.bill_date as date, p.bill_number, s.name as supplier, p.grand_total as total, p.tax_amount as tax, p.paid_amount as paid, p.payment_status
-      FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id
+      FROM purchases p LEFT JOIN parties s ON s.id = p.party_id
       WHERE p.bill_type='purchase' AND p.status='completed' AND p.bill_date BETWEEN ? AND ?
       ORDER BY p.bill_date
     `).all(from, to);
@@ -339,9 +339,9 @@ function customerReport(req, res) {
   try {
     const rows = db.prepare(`
       SELECT c.id, c.name, c.phone, c.current_balance, c.credit_limit,
-        (SELECT COUNT(*) FROM sales WHERE customer_id=c.id AND status='completed') as total_invoices,
-        (SELECT COALESCE(SUM(grand_total),0) FROM sales WHERE customer_id=c.id AND invoice_type IN ('sale','pos') AND status='completed') as total_sales
-      FROM customers c WHERE c.is_active=1 ORDER BY total_sales DESC
+        (SELECT COUNT(*) FROM sales WHERE party_id=c.id AND status='completed') as total_invoices,
+        (SELECT COALESCE(SUM(grand_total),0) FROM sales WHERE party_id=c.id AND invoice_type IN ('sale','pos') AND status='completed') as total_sales
+      FROM parties c WHERE c.is_active=1 ORDER BY total_sales DESC
     `).all();
     return success(res, rows);
   } catch (err) {
@@ -353,9 +353,9 @@ function supplierReport(req, res) {
   try {
     const rows = db.prepare(`
       SELECT s.id, s.name, s.phone, s.current_balance,
-        (SELECT COUNT(*) FROM purchases WHERE supplier_id=s.id AND status='completed') as total_bills,
-        (SELECT COALESCE(SUM(grand_total),0) FROM purchases WHERE supplier_id=s.id AND bill_type='purchase' AND status='completed') as total_purchases
-      FROM suppliers s WHERE s.is_active=1 ORDER BY total_purchases DESC
+        (SELECT COUNT(*) FROM purchases WHERE party_id=s.id AND status='completed') as total_bills,
+        (SELECT COALESCE(SUM(grand_total),0) FROM purchases WHERE party_id=s.id AND bill_type='purchase' AND status='completed') as total_purchases
+      FROM parties s WHERE s.is_active=1 ORDER BY total_purchases DESC
     `).all();
     return success(res, rows);
   } catch (err) {
@@ -365,14 +365,22 @@ function supplierReport(req, res) {
 
 function outstandingReport(req, res) {
   try {
-    const customers = db.prepare(`SELECT id, name, phone, email, last_reminder_at, current_balance as outstanding FROM customers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
-    const suppliers = db.prepare(`SELECT id, name, phone, email, last_reminder_at, current_balance as payable, current_balance as outstanding FROM suppliers WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
-    const openInvoicesStmt = db.prepare(`SELECT invoice_number, invoice_date, due_date, balance_amount FROM sales WHERE customer_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY invoice_date ASC LIMIT 5`);
-    for (const c of customers) c.pending_invoices = openInvoicesStmt.all(c.id);
-    const openBillsStmt = db.prepare(`SELECT bill_number, bill_date, due_date, balance_amount FROM purchases WHERE supplier_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY bill_date ASC LIMIT 5`);
-    for (const s of suppliers) s.pending_bills = openBillsStmt.all(s.id);
+    const receivables = db.prepare(`SELECT id, name, phone, email, last_reminder_at, current_balance as outstanding FROM parties WHERE is_active=1 AND current_balance > 0 ORDER BY current_balance DESC`).all();
+    const payables = db.prepare(`SELECT id, name, phone, email, last_reminder_at, ABS(current_balance) as payable, ABS(current_balance) as outstanding FROM parties WHERE is_active=1 AND current_balance < 0 ORDER BY current_balance ASC`).all();
+    
+    const openInvoicesStmt = db.prepare(`SELECT invoice_number, invoice_date, due_date, balance_amount FROM sales WHERE party_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY invoice_date ASC LIMIT 5`);
+    for (const c of receivables) c.pending_invoices = openInvoicesStmt.all(c.id);
+    
+    const openBillsStmt = db.prepare(`SELECT bill_number, bill_date, due_date, balance_amount FROM purchases WHERE party_id = ? AND status = 'completed' AND payment_status IN ('unpaid', 'partial') AND balance_amount > 0 ORDER BY bill_date ASC LIMIT 5`);
+    for (const s of payables) s.pending_bills = openBillsStmt.all(s.id);
 
-    return success(res, { customers, suppliers, customerOutstanding: customers.reduce((n, r) => n + Number(r.outstanding || 0), 0), supplierPayable: suppliers.reduce((n, r) => n + Number(r.payable || 0), 0) });
+    return success(res, { 
+      parties: receivables, 
+      receivables, 
+      payables, 
+      customerOutstanding: receivables.reduce((n, r) => n + Number(r.outstanding || 0), 0), 
+      supplierPayable: payables.reduce((n, r) => n + Number(r.payable || 0), 0) 
+    });
   } catch (err) { return error(res, err.message, 500); }
 }
 
@@ -387,21 +395,21 @@ function productProfitReport(req, res) {
   } catch (err) { return error(res, err.message, 500); }
 }
 
-function customerProfitReport(req, res) {
+function partyProfitReport(req, res) {
   try {
     const from = req.query.from_date || today().slice(0, 8) + '01'; const to = req.query.to_date || today();
-    const rows = db.prepare(`SELECT COALESCE(c.name, 'Walk-in Customer') customer_name, COUNT(DISTINCT s.id) invoices,
+    const rows = db.prepare(`SELECT COALESCE(c.name, 'Walk-in Customer') party_name, COUNT(DISTINCT s.id) invoices,
       ROUND(SUM(si.total),2) sales, ROUND(SUM(si.quantity * COALESCE(si.cost_price,0)),2) cost,
       ROUND(SUM(si.total - si.quantity * COALESCE(si.cost_price,0)),2) profit
-      FROM sales s JOIN sale_items si ON si.sale_id=s.id LEFT JOIN customers c ON c.id=s.customer_id
-      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ? GROUP BY s.customer_id ORDER BY profit DESC`).all(from, to);
+      FROM sales s JOIN sale_items si ON si.sale_id=s.id LEFT JOIN parties c ON c.id=s.party_id
+      WHERE s.invoice_type IN ('sale','pos') AND s.status='completed' AND s.invoice_date BETWEEN ? AND ? GROUP BY s.party_id ORDER BY profit DESC`).all(from, to);
     return success(res, { from, to, rows });
   } catch (err) { return error(res, err.message, 500); }
 }
 
 module.exports = {
   profitLoss, balanceSheet, gstReport, salesReport, purchaseReport,
-  expenseReport, taxReport, customerReport, supplierReport, outstandingReport, productProfitReport, customerProfitReport,
+  expenseReport, taxReport, customerReport, supplierReport, outstandingReport, productProfitReport, partyProfitReport,
 };
 
 // Creates a persistent server-side export for every report endpoint.  Calling
@@ -411,8 +419,10 @@ async function pdfExport(req, res) {
   const handlers = {
     'profit-loss': profitLoss, 'balance-sheet': balanceSheet, gst: gstReport,
     sales: salesReport, purchases: purchaseReport, expenses: expenseReport,
-    tax: taxReport, customers: customerReport, suppliers: supplierReport, outstanding: outstandingReport, 'product-profit': productProfitReport, 'customer-profit': customerProfitReport,
-    stock: require('./inventoryController').stockReport, expiry: require('./inventoryController').expiryReport, 'warehouse-stock': require('./inventoryController').warehouseStockReport,
+    tax: taxReport, parties: customerReport, outstanding: outstandingReport, 
+    'product-profit': productProfitReport, 'party-profit': partyProfitReport,
+    stock: require('./inventoryController').stockReport, expiry: require('./inventoryController').expiryReport, 
+    'warehouse-stock': require('./inventoryController').warehouseStockReport,
   };
   const handler = handlers[req.params.name];
   if (!handler) return error(res, 'Unknown report', 404);

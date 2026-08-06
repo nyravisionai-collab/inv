@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2, Download } from 'lucide-react';
-import { salesAPI, customersAPI, productsAPI, inventoryAPI, settingsAPI } from '../api/client';
+import { Plus, Search, Eye, FileText, MessageCircle, XCircle, Printer, Share2, Download, QrCode } from 'lucide-react';
+import { salesAPI, partiesAPI, productsAPI, inventoryAPI, settingsAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -11,6 +11,7 @@ import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
 import Modal from '../components/Modal';
+import { QRCodeSVG } from 'qrcode.react';
 
 const TYPE_MAP = {
   // A POS bill is a sale, so the invoice list covers both and the counter
@@ -27,8 +28,8 @@ function today() {
 }
 
 const emptyLine = {
-  product_id: '', product_name: '', quantity: 1, unit_price: 0, tax_rate: 0,
-  tax_type: 'exclusive', discount_value: 0, discount_type: 'amount',
+  product_id: '', product_name: '', quantity: 1, unit_price: 0,
+  discount_value: 0, discount_type: 'amount',
 };
 
 function SalesList() {
@@ -101,7 +102,7 @@ function SalesList() {
               <table>
                 <thead>
                   <tr>
-                    <th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Source')}</th><th>{t('Customer')}</th><th>{t('Amount')}</th>
+                    <th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Source')}</th><th>{t('Party')}</th><th>{t('Amount')}</th>
                     <th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th>
                   </tr>
                 </thead>
@@ -115,7 +116,7 @@ function SalesList() {
                           {s.invoice_type === 'pos' ? t('POS') : t('Invoice')}
                         </span>
                       </td>
-                      <td data-label={t('Customer')}>{s.customer_name || t('Walk-in Customer')}</td>
+                      <td data-label={t('Party')}>{s.party_name || t('Walk-in Party')}</td>
                       <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(s.grand_total)}</td>
                       <td data-label={t('Paid')}>{formatMoney(s.paid_amount)}</td>
                       <td data-label={t('Balance')}>{formatMoney(s.balance_amount)}</td>
@@ -150,12 +151,12 @@ function SaleForm() {
   const navigate = useNavigate();
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
-  const [customers, setCustomers] = useState([]);
+  const [parties, setParties] = useState([]);
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    customer_id: '', invoice_date: today(), due_date: '', warehouse_id: '',
+    party_id: '', invoice_date: today(), due_date: '', warehouse_id: '',
     discount_type: 'amount', discount_value: 0, shipping_charges: 0,
     notes: '', paid_amount: 0, payment_mode: 'cash',
     transporter_name: '', vehicle_number: '', lr_number: '', dispatch_address: '', eway_bill_number: '',
@@ -164,7 +165,7 @@ function SaleForm() {
   const [productSearch, setProductSearch] = useState('');
 
   useEffect(() => {
-    customersAPI.list({ limit: 100 }).then((r) => setCustomers(r.data.data)).catch(() => {});
+    partiesAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
     productsAPI.list({ limit: 100 }).then((r) => setProducts(r.data.data)).catch(() => {});
     inventoryAPI.warehouses().then((r) => setWarehouses(r.data.data)).catch(() => {});
   }, []);
@@ -185,8 +186,6 @@ function SaleForm() {
         product_name: product.name,
         quantity: 1,
         unit_price: product.selling_price,
-        tax_rate: product.tax_rate || 0,
-        tax_type: product.tax_type || 'exclusive',
         discount_value: 0,
         discount_type: 'amount',
         hsn_code: product.hsn_code,
@@ -213,8 +212,6 @@ function SaleForm() {
             ...next[idx],
             product_name: p.name,
             unit_price: p.selling_price,
-            tax_rate: p.tax_rate || 0,
-            tax_type: p.tax_type || 'exclusive',
             hsn_code: p.hsn_code,
             unit_id: p.unit_id,
           };
@@ -241,7 +238,7 @@ function SaleForm() {
 
   const calcItemTotal = (item) => {
     const c = calcLineTotal(item);
-    return { sub: c.gross, disc: c.discount, tax: c.tax, total: c.total };
+    return { sub: c.gross, disc: c.discount, total: c.total };
   };
 
   const totals = calcInvoiceTotals(items, form);
@@ -262,7 +259,7 @@ function SaleForm() {
       const res = await salesAPI.create({
         ...form,
         invoice_type: cfg.createType || cfg.type,
-        customer_id: form.customer_id || null,
+        party_id: form.party_id || null,
         warehouse_id: form.warehouse_id || null,
         items: validItems,
         paid_amount: Number(form.paid_amount) || 0,
@@ -295,10 +292,10 @@ function SaleForm() {
         <div className="card-body">
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">{t('Customer')}</label>
-              <select className="form-control" value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>
-                <option value="">{t('Walk-in Customer')}</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>)}
+              <label className="form-label">{t('Party')}</label>
+              <select className="form-control" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
+                <option value="">{t('Walk-in Party')}</option>
+                {parties.map((c) => <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -352,7 +349,6 @@ function SaleForm() {
                 <th style={{ minWidth: 180 }}>{t('Product')}</th>
                 <th style={{ width: 80 }}>{t('Qty')}</th>
                 <th style={{ width: 100 }}>{t('Price')}</th>
-                <th style={{ width: 80 }}>{t('Tax %')}</th>
                 <th style={{ width: 90 }}>{t('Discount')}</th>
                 <th style={{ width: 100 }}>{t('Total')}</th>
                 <th style={{ width: 40 }}></th>
@@ -371,7 +367,6 @@ function SaleForm() {
                     </td>
                     <td data-label={t('Qty')}><input className="form-control" type="number" min="0" step="any" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
                     <td data-label={t('Price')}><input className="form-control" type="number" min="0" step="any" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
-                    <td data-label={t('Tax %')}><input className="form-control" type="number" min="0" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
                     <td data-label={t('Discount')}><input className="form-control" type="number" min="0" value={item.discount_value} onChange={(e) => updateItem(idx, 'discount_value', e.target.value)} /></td>
                     <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(c.total)}</td>
                     <td data-label={t('Actions')}><button className="btn-icon" onClick={() => removeItem(idx)}><XCircle size={16} /></button></td>
@@ -430,9 +425,6 @@ function SaleForm() {
                 <input className="form-control" type="number" value={form.discount_value} onChange={(e) => setForm({ ...form, discount_value: e.target.value })} style={{ width: 80, height: 32 }} />
               </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span>{t('Tax')}</span><strong>{formatMoney(totals.taxAmount)}</strong>
-            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
               <span>{t('Shipping')}</span>
               <input className="form-control" type="number" value={form.shipping_charges} onChange={(e) => setForm({ ...form, shipping_charges: e.target.value })} style={{ width: 100, height: 32 }} />
@@ -459,7 +451,8 @@ function SaleDetail() {
   const [loading, setLoading] = useState(true);
   const [challanModal, setChallanModal] = useState(false);
   const [challanItems, setChallanItems] = useState([]);
-  const { formatMoney, t } = useAuth();
+  const [printMode, setPrintMode] = useState('a4'); // 'a4' or 'thermal'
+  const { formatMoney, t, settings } = useAuth();
   const { success, error } = useToast();
   const navigate = useNavigate();
 
@@ -537,8 +530,86 @@ function SaleDetail() {
     }
   };
 
+  const upiUrl = settings?.upi_id ? `upi://pay?pa=${settings.upi_id}&pn=${encodeURIComponent(settings.company_name || 'Business')}&am=${sale?.balance_amount}&cu=INR&tn=Inv-${sale?.invoice_number}` : null;
+
   if (loading) return <div className="spinner" />;
   if (!sale) return <div className="empty-state"><h3>{t('Sale not found')}</h3></div>;
+
+  if (printMode === 'thermal') {
+    return (
+      <div className="thermal-receipt">
+        <style>{`
+          @media print {
+            .app-layout > *:not(.main-content), .header, .sidebar, .no-print, .page-header { display: none !important; }
+            .main-content, .page, .thermal-receipt { margin: 0; padding: 0; width: 80mm; }
+            body { background: white; }
+          }
+          .thermal-receipt {
+            width: 80mm;
+            padding: 4mm;
+            background: white;
+            color: black;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            margin: 0 auto;
+            border: 1px solid #eee;
+          }
+          .thermal-header { text-align: center; margin-bottom: 4mm; }
+          .thermal-title { font-size: 16px; font-weight: bold; }
+          .thermal-table { width: 100%; border-collapse: collapse; margin-bottom: 4mm; }
+          .thermal-table th { border-bottom: 1px dashed #000; text-align: left; }
+          .thermal-table td { padding: 1mm 0; }
+          .thermal-footer { border-top: 1px dashed #000; padding-top: 2mm; }
+          .thermal-qr { text-align: center; margin-top: 4mm; }
+        `}</style>
+        <div className="thermal-header">
+          <div className="thermal-title">{settings?.company_name}</div>
+          <div>{settings?.address}</div>
+          <div>{settings?.phone}</div>
+          <hr style={{ border: 'none', borderTop: '1px dashed #000' }} />
+          <strong>{sale.invoice_type.toUpperCase()}</strong>
+          <div>No: {sale.invoice_number}</div>
+          <div>Date: {sale.invoice_date}</div>
+        </div>
+        <div style={{ marginBottom: '2mm' }}>Party: {sale.party_name || 'Walk-in'}</div>
+        <table className="thermal-table">
+          <thead>
+            <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+          </thead>
+          <tbody>
+            {sale.items.map((item, i) => (
+              <tr key={i}>
+                <td>{item.product_name.slice(0, 15)}</td>
+                <td>{item.quantity}</td>
+                <td>{item.unit_price}</td>
+                <td style={{ textAlign: 'right' }}>{item.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="thermal-footer">
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>{formatMoney(sale.subtotal)}</span></div>
+          {sale.discount_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Discount</span><span>-{formatMoney(sale.discount_amount)}</span></div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px', marginTop: '2mm' }}>
+            <span>GRAND TOTAL</span><span>{formatMoney(sale.grand_total)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Paid</span><span>{formatMoney(sale.paid_amount)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Balance</span><span>{formatMoney(sale.balance_amount)}</span></div>
+        </div>
+        {upiUrl && (
+          <div className="thermal-qr no-print-qr">
+            <QRCodeSVG value={upiUrl} size={120} />
+            <div style={{ fontSize: '10px', marginTop: '1mm' }}>Scan to Pay with UPI</div>
+          </div>
+        )}
+        <div style={{ textAlign: 'center', marginTop: '4mm', fontSize: '10px' }}>Thank You! Visit Again</div>
+        <div className="no-print" style={{ marginTop: '20px', textAlign: 'center' }}>
+          <button className="btn btn-primary" onClick={() => window.print()}>Print Receipt</button>
+          <button className="btn btn-secondary" onClick={() => setPrintMode('a4')} style={{ marginLeft: 8 }}>Back to A4</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="print-area">
@@ -549,6 +620,10 @@ function SaleDetail() {
         </div>
         <div className="page-actions">
           <button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button>
+          <select className="form-control" style={{ width: 120 }} value={printMode} onChange={(e) => setPrintMode(e.target.value)}>
+            <option value="a4">A4 Size</option>
+            <option value="thermal">Thermal (3")</option>
+          </select>
           <a className="btn btn-secondary" href={salesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a>
           {sale.invoice_type === 'sale_order' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={openChallanModal}>{t('Create Delivery Challan')}</button>}
           {sale.invoice_type === 'delivery_challan' && sale.status !== 'converted' && sale.status !== 'cancelled' && <button className="btn btn-primary" onClick={convertChallanToInvoice}>{t('Convert to Invoice')}</button>}
@@ -568,10 +643,10 @@ function SaleDetail() {
         <div className="card">
           <div className="card-body">
             <h3 style={{ marginBottom: 12, fontSize: 14, color: 'var(--text-secondary)' }}>{t('BILL TO')}</h3>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>{sale.customer_name || 'Walk-in Customer'}</div>
-            {sale.customer_phone && <div>{sale.customer_phone}</div>}
-            {sale.customer_address && <div style={{ color: 'var(--text-secondary)' }}>{sale.customer_address}</div>}
-            {sale.customer_gstin && <div>GSTIN: {sale.customer_gstin}</div>}
+            <div style={{ fontWeight: 600, fontSize: 16 }}>{sale.party_name || t('Walk-in Party')}</div>
+            {sale.party_phone && <div>{sale.party_phone}</div>}
+            {sale.party_address && <div style={{ color: 'var(--text-secondary)' }}>{sale.party_address}</div>}
+            {sale.party_gstin && <div>GSTIN: {sale.party_gstin}</div>}
           </div>
         </div>
         <div className="card">
@@ -582,6 +657,13 @@ function SaleDetail() {
               <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Total')}</span><div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(sale.grand_total)}</div></div>
               <div><span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t('Balance')}</span><div style={{ fontWeight: 700, fontSize: 18, color: sale.balance_amount > 0 ? 'var(--error)' : 'var(--success)' }}>{formatMoney(sale.balance_amount)}</div></div>
             </div>
+            {upiUrl && (
+              <div style={{ marginTop: 16, textAlign: 'center', padding: 12, background: '#f8f9fa', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>{t('Scan to Pay')}</div>
+                <QRCodeSVG value={upiUrl} size={100} />
+                <div style={{ fontSize: 11, marginTop: 4, fontWeight: 600 }}>{settings.upi_id}</div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -590,7 +672,7 @@ function SaleDetail() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>{t('Item')}</th><th>{t('HSN')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax')}</th><th>{t('Total')}</th></tr>
+              <tr><th>#</th><th>{t('Item')}</th><th>{t('HSN')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Total')}</th></tr>
             </thead>
             <tbody>
               {(sale.items || []).map((item, i) => (
@@ -600,7 +682,6 @@ function SaleDetail() {
                   <td data-label={t('HSN')}>{item.hsn_code || '—'}</td>
                   <td data-label={t('Qty')}>{item.quantity}</td>
                   <td data-label={t('Price')}>{formatMoney(item.unit_price)}</td>
-                  <td data-label={t('Tax')}>{formatMoney(item.tax_amount)} ({item.tax_rate}%)</td>
                   <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
                 </tr>
               ))}
@@ -611,12 +692,19 @@ function SaleDetail() {
           <div style={{ width: 280 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Subtotal')}</span><span>{formatMoney(sale.subtotal)}</span></div>
             {sale.discount_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Discount')}</span><span>-{formatMoney(sale.discount_amount)}</span></div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Tax')}</span><span>{formatMoney(sale.tax_amount)}</span></div>
             {sale.shipping_charges > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}><span>{t('Shipping')}</span><span>{formatMoney(sale.shipping_charges)}</span></div>}
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 18, fontWeight: 700 }}><span>{t('Total')}</span><span>{formatMoney(sale.grand_total)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>{t('Paid')}</span><span>{formatMoney(sale.paid_amount)}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}><span>{t('Balance')}</span><span style={{ fontWeight: 600 }}>{formatMoney(sale.balance_amount)}</span></div>
+            {sale.profit !== undefined && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--border)' }}>
+                <span>{t('Estimated Profit')}</span>
+                <span style={{ fontWeight: 600, color: sale.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                  {formatMoney(sale.profit)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -350,6 +350,9 @@ detect_lan_ip() {
     ip=$(ifconfig 2>/dev/null \
       | awk '/inet /{gsub(/addr:/,"",$2); if ($2 !~ /^127/ && $2 !~ /^169\.254/) {print $2; exit}}')
   fi
+  if [ -z "$ip" ] && command -v ipconfig.exe >/dev/null 2>&1; then
+    ip=$(ipconfig.exe | grep "IPv4 Address" | head -n 1 | awk '{print $NF}' | tr -d '\r')
+  fi
   printf '%s' "$ip"
 }
 

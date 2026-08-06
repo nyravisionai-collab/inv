@@ -55,11 +55,11 @@ function getDashboard(req, res) {
 
     const recentTransactions = db.prepare(`
       SELECT 'sale' as type, id, invoice_number as number, invoice_date as date, grand_total as amount, payment_status as status,
-        (SELECT name FROM customers WHERE id = sales.customer_id) as party
+        (SELECT name FROM parties WHERE id = sales.party_id) as party
       FROM sales WHERE status != 'cancelled'
       UNION ALL
       SELECT 'purchase' as type, id, bill_number as number, bill_date as date, grand_total as amount, payment_status as status,
-        (SELECT name FROM suppliers WHERE id = purchases.supplier_id) as party
+        (SELECT name FROM parties WHERE id = purchases.party_id) as party
       FROM purchases WHERE status != 'cancelled'
       ORDER BY date DESC LIMIT 15
     `).all();
@@ -101,8 +101,8 @@ function getDashboard(req, res) {
       GROUP BY month ORDER BY month
     `).all(t);
 
-    const totalCustomers = db.prepare('SELECT COUNT(*) as c FROM customers WHERE is_active = 1').get().c;
-    const totalSuppliers = db.prepare('SELECT COUNT(*) as c FROM suppliers WHERE is_active = 1').get().c;
+    const totalCustomers = db.prepare('SELECT COUNT(*) as c FROM parties WHERE is_active = 1').get().c;
+    const totalSuppliers = db.prepare('SELECT COUNT(*) as c FROM parties WHERE is_active = 1').get().c;
     const totalProducts = db.prepare('SELECT COUNT(*) as c FROM products WHERE is_active = 1').get().c;
     const stockValue = db.prepare(`
       SELECT COALESCE(SUM(
@@ -113,13 +113,13 @@ function getDashboard(req, res) {
     `).get().v;
 
     const receivables = db.prepare(`
-      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total
-      FROM customers WHERE is_active = 1
+      SELECT COALESCE(SUM(current_balance), 0) as total
+      FROM parties WHERE is_active = 1 AND current_balance > 0
     `).get();
 
     const payables = db.prepare(`
-      SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total
-      FROM suppliers WHERE is_active = 1
+      SELECT ABS(COALESCE(SUM(current_balance), 0)) as total
+      FROM parties WHERE is_active = 1 AND current_balance < 0
     `).get();
 
     return success(res, {

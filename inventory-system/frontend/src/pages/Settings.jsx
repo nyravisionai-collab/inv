@@ -179,6 +179,10 @@ export default function Settings() {
                 <label className="form-label">{t('Website')}</label>
                 <input className="form-control" value={form.website || ''} onChange={(e) => set('website', e.target.value)} disabled={!isAdmin} />
               </div>
+              <div className="form-group">
+                <label className="form-label">{t('UPI ID for Payments')}</label>
+                <input className="form-control" placeholder="example@oksbi" value={form.upi_id || ''} onChange={(e) => set('upi_id', e.target.value)} disabled={!isAdmin} />
+              </div>
             </div>
           </div>
         </div>
@@ -377,9 +381,9 @@ export default function Settings() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('products', 'csv')}><Download size={16} /> Products CSV</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('products', 'xlsx')}><Download size={16} /> Products Excel</button>
-                  <button className="btn btn-sm btn-secondary" onClick={() => doExport('customers', 'csv')}><Download size={16} /> Customers CSV</button>
+                  <button className="btn btn-sm btn-secondary" onClick={() => doExport('partys', 'csv')}><Download size={16} /> Partys CSV</button>
                   <button className="btn btn-sm btn-secondary" onClick={() => doExport('sales', 'xlsx')}><Download size={16} /> Sales Excel</button>
-                  {['products', 'customers', 'suppliers', 'sales', 'purchases', 'payments', 'expenses', 'stock'].map((type) => <button key={type} className="btn btn-sm btn-secondary" onClick={() => doPdfExport(type)}><Download size={16} /> {type} PDF</button>)}
+                  {['products', 'partys', 'partys', 'sales', 'purchases', 'payments', 'expenses', 'stock'].map((type) => <button key={type} className="btn btn-sm btn-secondary" onClick={() => doPdfExport(type)}><Download size={16} /> {type} PDF</button>)}
                 </div>
                 <label className="btn btn-sm btn-outline" style={{ cursor: 'pointer' }}>
                   <Upload size={16} /> Import Products

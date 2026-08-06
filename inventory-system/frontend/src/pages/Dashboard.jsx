@@ -1,7 +1,7 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  TrendingUp, ShoppingBag, Wallet, DollarSign, AlertTriangle,
+  TrendingUp, ShoppingBag, Wallet, DollarSign, TriangleAlert,
   Users, Package, Truck, Receipt,
 } from 'lucide-react';
 
@@ -33,10 +33,10 @@ export default function Dashboard() {
     { label: "Today's Purchases", value: formatMoney(data.todayPurchases), sub: `${data.todayPurchasesCount} bills`, icon: ShoppingBag, color: 'orange', path: '/purchases' },
     { label: 'Cash in Hand', value: formatMoney(data.cashInHand), sub: `Bank: ${formatMoney(data.bankBalance)}`, icon: Wallet, color: 'green', path: '/banks' },
     { label: "Today's Profit", value: formatMoney(data.profit), sub: 'After COGS & expenses', icon: DollarSign, color: data.profit >= 0 ? 'teal' : 'red', path: '/reports' },
-    { label: 'Receivables', value: formatMoney(data.receivables), sub: 'Customer dues', icon: Users, color: 'purple', path: '/customers' },
-    { label: 'Payables', value: formatMoney(data.payables), sub: 'Supplier dues', icon: Truck, color: 'red', path: '/suppliers' },
+    { label: 'Receivables', value: formatMoney(data.receivables), sub: 'Money to take', icon: Users, color: 'purple', path: '/parties' },
+    { label: 'Payables', value: formatMoney(data.payables), sub: 'Money to give', icon: Truck, color: 'red', path: '/parties' },
     { label: 'Products', value: data.totalProducts, sub: `Stock value: ${formatMoney(data.stockValue)}`, icon: Package, color: 'blue', path: '/products' },
-    { label: 'Low Stock', value: data.lowStockCount, sub: 'Items need reorder', icon: AlertTriangle, color: 'orange', path: '/low-stock' },
+    { label: 'Low Stock', value: data.lowStockCount, sub: 'Items need reorder', icon: TriangleAlert, color: 'orange', path: '/low-stock' },
   ];
 
   return (

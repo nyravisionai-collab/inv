@@ -87,6 +87,17 @@ export const paymentsAPI = {
   remove: (id) => api.delete(`/payments/${id}`),
 };
 
+export const partiesAPI = {
+  list: (params) => api.get('/parties', { params }),
+  get: (id) => api.get(`/parties/${id}`),
+  create: (data) => api.post('/parties', data),
+  update: (id, data) => api.put(`/parties/${id}`, data),
+  remove: (id) => api.delete(`/parties/${id}`),
+  ledger: (id, params) => api.get(`/parties/${id}/ledger`, { params }),
+  ledgerPdf: (id, params) => api.post(`/parties/${id}/ledger/pdf`, null, { params }),
+  outstanding: () => api.get('/parties/outstanding'),
+};
+
 export const customersAPI = {
   list: (params) => api.get('/customers', { params }),
   get: (id) => api.get(`/customers/${id}`),

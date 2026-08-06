@@ -72,10 +72,12 @@ function moneyError(message, code = 'ERR_VALIDATION') {
  * `taxableAmount` is the pre-tax value of the line and is what GST reports and
  * the invoice subtotal should be based on.
  */
-function calcLineTotal(qty, price, discountType, discountValue, taxRate, taxType = 'exclusive') {
+function calcLineTotal(qty, price, discountType, discountValue, taxRate = 0, taxType = 'none') {
   const quantity = Number(qty) || 0;
   const unitPrice = Number(price) || 0;
-  const rate = Number(taxRate) || 0;
+  // taxRate and taxType are ignored now as per user request to remove taxes.
+  const rate = 0;
+  const tType = 'none';
 
   const gross = quantity * unitPrice;
 
@@ -88,24 +90,9 @@ function calcLineTotal(qty, price, discountType, discountValue, taxRate, taxType
 
   const afterDiscount = gross - discountAmount;
 
-  let taxableAmount;
-  let taxAmount;
-  let total;
-
-  if (taxType === 'none' || rate === 0) {
-    taxableAmount = round2(afterDiscount);
-    taxAmount = 0;
-    total = round2(afterDiscount);
-  } else if (taxType === 'inclusive') {
-    // afterDiscount already includes tax: back it out.
-    taxableAmount = round2(afterDiscount / (1 + rate / 100));
-    taxAmount = round2(afterDiscount - taxableAmount);
-    total = round2(afterDiscount);
-  } else {
-    taxableAmount = round2(afterDiscount);
-    taxAmount = round2(afterDiscount * rate / 100);
-    total = round2(afterDiscount + taxAmount);
-  }
+  const taxableAmount = round2(afterDiscount);
+  const taxAmount = 0;
+  const total = round2(afterDiscount);
 
   return {
     subtotal: round2(gross),
@@ -203,38 +190,25 @@ function calcInvoiceTotals(items, discountType, discountValue, shipping = 0, oth
   let allocatedInvoiceDiscount = 0;
 
   items.forEach((item, index) => {
-    const taxType = item.tax_type || item.taxType || 'exclusive';
-    const rate = Number(item.tax_rate || item.taxRate || 0);
+    // Tax is disabled
+    const taxType = 'none';
+    const rate = 0;
     const alloc = round2(allocations[index] || 0);
     allocatedInvoiceDiscount = round2(allocatedInvoiceDiscount + alloc);
     item.invoice_discount_amount = alloc;
     item.discount_amount = round2(Number(item.line_discount_amount || 0) + alloc);
 
-    let taxableAmount;
-    let lineTax;
-    let total;
-
-    if (taxType === 'inclusive' && rate > 0) {
-      const discountedGross = round2(Math.max(0, Number(item.total || 0) - alloc));
-      taxableAmount = round2(discountedGross / (1 + rate / 100));
-      lineTax = round2(discountedGross - taxableAmount);
-      total = discountedGross;
-    } else if (taxType === 'none' || rate === 0) {
-      taxableAmount = round2(Math.max(0, invoiceDiscountBase(item) - alloc));
-      lineTax = 0;
-      total = taxableAmount;
-    } else {
-      taxableAmount = round2(Math.max(0, invoiceDiscountBase(item) - alloc));
-      lineTax = round2(taxableAmount * rate / 100);
-      total = round2(taxableAmount + lineTax);
-    }
+    const taxableAmount = round2(Math.max(0, invoiceDiscountBase(item) - alloc));
+    const lineTax = 0;
+    const total = taxableAmount;
 
     item.tax_type = taxType;
+    item.tax_rate = 0;
     item.taxable_amount = taxableAmount;
     item.tax_amount = lineTax;
     item.total = total;
 
-    taxAmount = round2(taxAmount + lineTax);
+    taxAmount = 0;
     lineTotals = round2(lineTotals + total);
   });
 

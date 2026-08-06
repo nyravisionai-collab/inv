@@ -9,8 +9,7 @@ const products = require('../controllers/productController');
 const sales = require('../controllers/salesController');
 const purchases = require('../controllers/purchaseController');
 const payments = require('../controllers/paymentController');
-const customers = require('../controllers/customerController');
-const suppliers = require('../controllers/supplierController');
+const parties = require('../controllers/partyController');
 const inventory = require('../controllers/inventoryController');
 const accounting = require('../controllers/accountingController');
 const reports = require('../controllers/reportController');
@@ -70,27 +69,22 @@ router.post('/payments/:id/pdf', payments.pdfReceipt);
 router.post('/payments', auditLog('create', 'payment'), payments.create);
 router.delete('/payments/:id', payments.remove);
 
-// Customers
-router.get('/customers', customers.list);
-router.get('/customers/outstanding', customers.outstanding);
-router.post('/customers/:id/remind', customers.sendReminder);
-router.get('/customers/:id', customers.getById);
-router.get('/customers/:id/ledger', customers.ledger);
-router.post('/customers/:id/ledger/pdf', customers.pdfLedger);
-router.post('/customers', auditLog('create', 'customer'), customers.create);
-router.put('/customers/:id', customers.update);
-router.delete('/customers/:id', customers.remove);
+// Parties
+router.get('/parties', parties.list);
+router.get('/parties/outstanding', reports.outstandingReport);
+router.get('/parties/:id', parties.getById);
+router.get('/parties/:id/ledger', parties.ledger);
+router.post('/parties', auditLog('create', 'party'), parties.create);
+router.put('/parties/:id', auditLog('update', 'party'), parties.update);
+router.delete('/parties/:id', auditLog('delete', 'party'), parties.remove);
 
-// Suppliers
-router.get('/suppliers', suppliers.list);
-router.get('/suppliers/outstanding', suppliers.outstanding);
-router.post('/suppliers/:id/remind', suppliers.sendReminder);
-router.get('/suppliers/:id', suppliers.getById);
-router.get('/suppliers/:id/ledger', suppliers.ledger);
-router.post('/suppliers/:id/ledger/pdf', suppliers.pdfLedger);
-router.post('/suppliers', auditLog('create', 'supplier'), suppliers.create);
-router.put('/suppliers/:id', suppliers.update);
-router.delete('/suppliers/:id', suppliers.remove);
+// Aliases for compatibility
+router.get('/customers', parties.list);
+router.get('/suppliers', parties.list);
+router.get('/customers/:id', parties.getById);
+router.get('/suppliers/:id', parties.getById);
+router.post('/customers', auditLog('create', 'party'), parties.create);
+router.post('/suppliers', auditLog('create', 'party'), parties.create);
 
 // Inventory masters
 router.get('/categories', inventory.listCategories);
@@ -150,7 +144,8 @@ router.get('/reports/expiry', inventory.expiryReport);
 router.get('/reports/warehouse-stock', inventory.warehouseStockReport);
 router.get('/reports/outstanding', reports.outstandingReport);
 router.get('/reports/product-profit', reports.productProfitReport);
-router.get('/reports/customer-profit', reports.customerProfitReport);
+router.get('/reports/party-profit', reports.partyProfitReport);
+router.get('/reports/customer-profit', reports.partyProfitReport);
 
 // Settings
 router.get('/settings', settings.getSettings);

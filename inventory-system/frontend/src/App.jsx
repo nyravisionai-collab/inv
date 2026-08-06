@@ -21,9 +21,7 @@ const Payments = lazy(() => import('./pages/Payments'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Users = lazy(() => import('./pages/Users'));
-
-const Customers = lazy(() => import('./pages/Parties').then((m) => ({ default: m.Customers })));
-const Suppliers = lazy(() => import('./pages/Parties').then((m) => ({ default: m.Suppliers })));
+const Parties = lazy(() => import('./pages/Parties'));
 
 const Categories = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Categories })));
 const Brands = lazy(() => import('./pages/Inventory').then((m) => ({ default: m.Brands })));
@@ -87,8 +85,10 @@ function AppRoutes() {
           <Route path="stock-adjustment" element={<StockAdjustment />} />
           <Route path="low-stock" element={<LowStock />} />
 
-          <Route path="customers" element={<Customers />} />
-          <Route path="suppliers" element={<Suppliers />} />
+          <Route path="parties" element={<Parties />} />
+          <Route path="parties/outstanding" element={<Parties />} />
+          <Route path="customers" element={<Navigate to="/parties" replace />} />
+          <Route path="suppliers" element={<Navigate to="/parties" replace />} />
 
           <Route path="expenses" element={<Expenses />} />
           <Route path="incomes" element={<Incomes />} />

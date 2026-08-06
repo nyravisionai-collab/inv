@@ -20,7 +20,7 @@ const SALE_STATUSES = ['draft', 'pending', 'completed', 'cancelled', 'converted'
 
 function list(req, res) {
   try {
-    const { page = 1, limit = 20, search, type, status, payment_status, customer_id, from_date, to_date } = req.query;
+    const { page = 1, limit = 20, search, type, status, payment_status, party_id, from_date, to_date } = req.query;
     let where = 'WHERE 1=1';
     const params = [];
 
@@ -40,7 +40,7 @@ function list(req, res) {
     }
     if (status) { where += ' AND s.status = ?'; params.push(status); }
     if (payment_status) { where += ' AND s.payment_status = ?'; params.push(payment_status); }
-    if (customer_id) { where += ' AND s.customer_id = ?'; params.push(customer_id); }
+    if (party_id) { where += ' AND s.party_id = ?'; params.push(party_id); }
     if (from_date) { where += ' AND s.invoice_date >= ?'; params.push(from_date); }
     if (to_date) { where += ' AND s.invoice_date <= ?'; params.push(to_date); }
     if (search) {
@@ -50,16 +50,16 @@ function list(req, res) {
     }
 
     const total = db.prepare(`
-      SELECT COUNT(*) as c FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ${where}
+      SELECT COUNT(*) as c FROM sales s LEFT JOIN parties c ON c.id = s.party_id ${where}
     `).get(...params).c;
 
     const { page: pageNo, limit: lim, offset } = pageParams({ page, limit });
 
     const rows = db.prepare(`
-      SELECT s.*, c.name as customer_name, c.phone as customer_phone,
+      SELECT s.*, c.name as party_name, c.phone as party_phone,
         u.full_name as created_by_name
       FROM sales s
-      LEFT JOIN customers c ON c.id = s.customer_id
+      LEFT JOIN parties c ON c.id = s.party_id
       LEFT JOIN users u ON u.id = s.created_by
       ${where}
       ORDER BY s.invoice_date DESC, s.id DESC
@@ -75,11 +75,11 @@ function list(req, res) {
 function getById(req, res) {
   try {
     const sale = db.prepare(`
-      SELECT s.*, c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
-        c.address as customer_address, c.gstin as customer_gstin, c.city as customer_city,
-        c.state as customer_state, c.pincode as customer_pincode, w.name as warehouse_name, u.full_name as created_by_name
+      SELECT s.*, c.name as party_name, c.phone as party_phone, c.email as party_email,
+        c.address as party_address, c.gstin as party_gstin, c.city as party_city,
+        c.state as party_state, c.pincode as party_pincode, w.name as warehouse_name, u.full_name as created_by_name
       FROM sales s
-      LEFT JOIN customers c ON c.id = s.customer_id
+      LEFT JOIN parties c ON c.id = s.party_id
       LEFT JOIN warehouses w ON w.id = s.warehouse_id
       LEFT JOIN users u ON u.id = s.created_by
       WHERE s.id = ?
@@ -95,6 +95,14 @@ function getById(req, res) {
     `).all(sale.id);
 
     sale.payments = db.prepare('SELECT * FROM payments WHERE sale_id = ? ORDER BY payment_date').all(sale.id);
+
+    // Calculate total cost and profit for this bill
+    const profitData = db.prepare(`
+      SELECT SUM(quantity * cost_price) as total_cost
+      FROM sale_items WHERE sale_id = ?
+    `).get(sale.id);
+    sale.total_cost = profitData.total_cost || 0;
+    sale.profit = sale.grand_total - sale.tax_amount - (sale.shipping_charges || 0) - sale.total_cost;
 
     if (sale.invoice_type === 'sale_order') {
       const delivered = db.prepare(`SELECT si.product_id, si.product_name, COALESCE(SUM(si.quantity), 0) quantity
@@ -151,6 +159,14 @@ function createSaleCore(body, userId) {
       if (prodTax && prodTax.tax_type) item = { ...item, tax_type: prodTax.tax_type };
     }
     const v = validateLineItem(item, index);
+    // The validator accepts a line that references a product by id alone, but
+    // sale_items.product_name is NOT NULL — a nameless line would die at the
+    // INSERT with a 500. Resolve the product's name instead.
+    let lineName = item.product_name || item.name;
+    if (!String(lineName || '').trim() && item.product_id) {
+      const nameRow = db.prepare('SELECT name FROM products WHERE id = ?').get(item.product_id);
+      lineName = nameRow ? nameRow.name : null;
+    }
     const calc = calcLineTotal(v.quantity, v.unitPrice, v.discountType, v.discountValue, v.taxRate, v.taxType);
     // Snapshot the cost at the time of sale so historical profit reports stay
     // stable even when the product's purchase price changes later. A selected
@@ -160,7 +176,7 @@ function createSaleCore(body, userId) {
       : (item.product_id ? db.prepare('SELECT purchase_price FROM products WHERE id = ?').get(item.product_id) : null);
     return {
       product_id: item.product_id || null,
-      product_name: item.product_name || item.name,
+      product_name: lineName,
       hsn_code: item.hsn_code || null,
       batch_id: item.batch_id || null,
       quantity: v.quantity,
@@ -207,14 +223,14 @@ function createSaleCore(body, userId) {
 
   const result = db.prepare(`
     INSERT INTO sales (
-      invoice_number, invoice_type, customer_id, invoice_date, due_date, reference_number,
+      invoice_number, invoice_type, party_id, invoice_date, due_date, reference_number,
       transporter_name, vehicle_number, lr_number, dispatch_address, eway_bill_number,
       status, payment_status, subtotal, discount_type, discount_value, discount_amount,
       tax_amount, shipping_charges, other_charges, round_off, grand_total, paid_amount,
       balance_amount, notes, terms, warehouse_id, created_by
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
-    invoiceNumber, invoiceType, body.customer_id || null, date, dueDate, body.reference_number || null,
+    invoiceNumber, invoiceType, body.party_id || null, date, dueDate, body.reference_number || null,
     body.transporter_name || null, body.vehicle_number || null, body.lr_number || null, body.dispatch_address || null, body.eway_bill_number || null,
     status, paymentStatus, totals.subtotal, money.discountType, money.discountValue, totals.discountAmount,
     totals.taxAmount, money.shippingCharges, money.otherCharges, money.roundOff,
@@ -251,7 +267,7 @@ function createSaleCore(body, userId) {
   }
 
   // Record payment/refund if paid. A sale return is money going out to
-  // the customer, not a receipt from them.
+  // the party, not a receipt from them.
   if (paid > 0 && status === 'completed') {
     const isReturn = invoiceType === 'sale_return';
     const paymentType = isReturn ? 'payment_out' : 'payment_in';
@@ -265,7 +281,7 @@ function createSaleCore(body, userId) {
     const payRes = db.prepare(`
       INSERT INTO payments (payment_number, payment_type, party_type, party_id, payment_date, amount, payment_mode, bank_account_id, sale_id, created_by)
       VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).run(payNum, paymentType, 'customer', body.customer_id || null, date, paid, paymentMode, baId, saleId, userId);
+    `).run(payNum, paymentType, 'party', body.party_id || null, date, paid, paymentMode, baId, saleId, userId);
 
     // The amount is already on the document's paid_amount, so record the
     // allocation without applying it a second time. This also lets payment
@@ -276,14 +292,14 @@ function createSaleCore(body, userId) {
     if (baId) partyService.updateBankBalance(baId, paid, isReturn ? 'debit' : 'credit');
   }
 
-  if (body.customer_id) partyService.updateCustomerBalance(body.customer_id);
+  if (body.party_id) partyService.updatePartyBalance(body.party_id);
 
   return saleId;
 }
 
 function loadFullSale(saleId) {
   const full = db.prepare(`
-    SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
+    SELECT s.*, c.name as party_name FROM sales s LEFT JOIN parties c ON c.id = s.party_id WHERE s.id = ?
   `).get(saleId);
   full.items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId);
   return full;
@@ -343,10 +359,10 @@ function cancel(req, res) {
     }
 
     db.prepare("UPDATE sales SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now(), sale.id);
-    // Money settled against this invoice moves to the customer's other open
+    // Money settled against this invoice moves to the party's other open
     // bills, or back onto their account as credit.
     paymentService.releaseDocument('payment_in', sale.id);
-    if (sale.customer_id) partyService.updateCustomerBalance(sale.customer_id);
+    if (sale.party_id) partyService.updatePartyBalance(sale.party_id);
     return sale;
   });
 
@@ -374,7 +390,7 @@ function convert(req, res) {
     const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
     const payload = {
       invoice_type: toType,
-      customer_id: sale.customer_id,
+      party_id: sale.party_id,
       invoice_date: today(),
       items: items.map((i) => ({
         product_id: i.product_id,
@@ -441,7 +457,7 @@ function createPartialChallan(req, res) {
         discount_type: source.discount_type, discount_value: source.discount_value, tax_rate: source.tax_rate, tax_type: source.tax_type };
     });
     const id = db.transaction(() => {
-      const challanId = createSaleCore({ invoice_type: 'delivery_challan', customer_id: order.customer_id,
+      const challanId = createSaleCore({ invoice_type: 'delivery_challan', party_id: order.party_id,
         invoice_date: req.body.invoice_date || today(), items, discount_type: order.discount_type,
         discount_value: order.discount_value, shipping_charges: 0, other_charges: 0, notes: req.body.notes || order.notes,
         warehouse_id: order.warehouse_id, status: 'completed', transporter_name: req.body.transporter_name,
@@ -466,9 +482,9 @@ function formatCityStatePin(city, state, pincode) {
 function pdfInvoice(req, res) {
   try {
     const sale = db.prepare(`
-      SELECT s.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
-        c.gstin as customer_gstin, c.city as customer_city, c.state as customer_state, c.pincode as customer_pincode
-      FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
+      SELECT s.*, c.name as party_name, c.phone as party_phone, c.address as party_address,
+        c.gstin as party_gstin, c.city as party_city, c.state as party_state, c.pincode as party_pincode
+      FROM sales s LEFT JOIN parties c ON c.id = s.party_id WHERE s.id = ?
     `).get(req.params.id);
     if (!sale) return error(res, 'Sale not found', 404, null, 'ERR_NOT_FOUND');
 
@@ -476,7 +492,7 @@ function pdfInvoice(req, res) {
     const company = db.prepare('SELECT * FROM company_settings WHERE id = 1').get() || {};
 
     // writeText picks the right font per script, so Gujarati company names,
-    // customer names and product names all render alongside Latin text.
+    // party names and product names all render alongside Latin text.
     const { doc, writeText, setBold, unicode } = createPdfDocument();
     const symbol = company.currency_symbol || '\u20B9';
     const money = (n) => pdfMoney(n, symbol, unicode);
@@ -555,16 +571,16 @@ function pdfInvoice(req, res) {
     writeText('Bill To:');
     setBold(false);
     doc.fontSize(10);
-    const customerName = String(sale.customer_name || 'Walk-in Customer').trim();
-    writeText(customerName);
-    const customerAddress = String(sale.customer_address || '').trim();
-    if (customerAddress) writeText(customerAddress);
-    const custCityStatePin = formatCityStatePin(sale.customer_city, sale.customer_state, sale.customer_pincode);
+    const partyName = String(sale.party_name || 'Walk-in Party').trim();
+    writeText(partyName);
+    const partyAddress = String(sale.party_address || '').trim();
+    if (partyAddress) writeText(partyAddress);
+    const custCityStatePin = formatCityStatePin(sale.party_city, sale.party_state, sale.party_pincode);
     if (custCityStatePin) writeText(custCityStatePin);
-    const customerPhone = String(sale.customer_phone || '').trim();
-    if (customerPhone) writeText(`Phone: ${customerPhone}`);
-    const customerGstin = String(sale.customer_gstin || '').trim();
-    if (customerGstin) writeText(`GSTIN: ${customerGstin}`);
+    const partyPhone = String(sale.party_phone || '').trim();
+    if (partyPhone) writeText(`Phone: ${partyPhone}`);
+    const partyGstin = String(sale.party_gstin || '').trim();
+    if (partyGstin) writeText(`GSTIN: ${partyGstin}`);
     if (sale.invoice_type === 'delivery_challan' && sale.dispatch_address) writeText(`Dispatch From: ${sale.dispatch_address}`);
 
     doc.moveDown();
@@ -634,13 +650,13 @@ function pdfInvoice(req, res) {
 function whatsappLink(req, res) {
   try {
     const sale = db.prepare(`
-      SELECT s.*, c.name as customer_name, c.phone as customer_phone
-      FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?
+      SELECT s.*, c.name as party_name, c.phone as party_phone
+      FROM sales s LEFT JOIN parties c ON c.id = s.party_id WHERE s.id = ?
     `).get(req.params.id);
     if (!sale) return error(res, 'Sale not found', 404);
 
     const company = db.prepare('SELECT company_name, currency_symbol FROM company_settings WHERE id = 1').get();
-    const phone = (sale.customer_phone || '').replace(/\D/g, '');
+    const phone = (sale.party_phone || '').replace(/\D/g, '');
     const msg = encodeURIComponent(
       `*${company.company_name}*\nInvoice: ${sale.invoice_number}\nDate: ${sale.invoice_date}\nAmount: ${company.currency_symbol}${sale.grand_total.toFixed(2)}\nPaid: ${company.currency_symbol}${sale.paid_amount.toFixed(2)}\nBalance: ${company.currency_symbol}${sale.balance_amount.toFixed(2)}\nThank you for your business!`
     );

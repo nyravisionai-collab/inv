@@ -1,11 +1,38 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, ShoppingCart, ShoppingBag, Package, Users, Truck,
-  Wallet, BarChart3, Settings, UserCog, Menu, X, Search, Bell,
-  Sun, Moon, ChevronDown, Store, FileText, RotateCcw,
-  ClipboardList, ScanBarcode, CreditCard, Tags, Tag, Building2,
-  ArrowLeftRight, SlidersHorizontal, Receipt, BookOpen, PiggyBank,
+  LayoutDashboard,
+  ShoppingCart,
+  ShoppingBag,
+  Package,
+  Users,
+  Truck,
+  Wallet,
+  BarChart3,
+  Settings,
+  UserCog,
+  Menu,
+  X,
+  Search,
+  Bell,
+  Sun,
+  Moon,
+  ChevronDown,
+  Store,
+  FileText,
+  RotateCcw,
+  ClipboardList,
+  ScanBarcode,
+  CreditCard,
+  Tags,
+  Tag,
+  Building2,
+  ArrowLeftRight,
+  SlidersHorizontal,
+  Receipt,
+  BookOpen,
+  PiggyBank,
+  TriangleAlert,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { searchAPI, notificationsAPI } from '../api/client';
@@ -54,8 +81,8 @@ const NAV = [
   {
     title: 'Parties',
     items: [
-      { to: '/customers', icon: Users, label: 'Customers' },
-      { to: '/suppliers', icon: Truck, label: 'Suppliers' },
+      { to: '/parties', icon: Users, label: 'All Parties' },
+      { to: '/parties/outstanding', icon: TriangleAlert, label: 'Outstanding' },
     ],
   },
   {
@@ -198,7 +225,7 @@ export default function Layout() {
               />
               {showSearch && searchResults && (
                 <div className="search-dropdown">
-                  {['products', 'customers', 'suppliers', 'sales', 'purchases'].map((key) =>
+                  {['products', 'parties', 'sales', 'purchases'].map((key) =>
                     searchResults[key]?.length > 0 && (
                       <div key={key}>
                         <div className="search-group-title">{key}</div>
@@ -209,8 +236,7 @@ export default function Layout() {
                             onClick={() => {
                               const paths = {
                                 products: `/products`,
-                                customers: `/customers`,
-                                suppliers: `/suppliers`,
+                                parties: `/parties`,
                                 sales: `/sales/${item.id}`,
                                 purchases: `/purchases/${item.id}`,
                               };

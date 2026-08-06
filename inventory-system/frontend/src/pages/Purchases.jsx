@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Eye, XCircle, Printer, Download } from 'lucide-react';
-import { purchasesAPI, suppliersAPI, productsAPI, settingsAPI } from '../api/client';
+import { Plus, Search, Eye, XCircle, Printer, Download, QrCode } from 'lucide-react';
+import { purchasesAPI, partiesAPI, productsAPI, settingsAPI, inventoryAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { apiErrorMessage } from '../utils/apiError';
@@ -10,6 +10,14 @@ import { withRowId } from '../utils/rowId';
 import { useConfirm } from '../context/ConfirmContext';
 import Pagination from '../components/Pagination';
 import EmptyState from '../components/EmptyState';
+import Modal from '../components/Modal';
+
+const emptyProduct = {
+  name: '', sku: '', barcode: '', description: '',
+  category_id: '', brand_id: '', unit_id: '', purchase_price: '', selling_price: '',
+  mrp: '', min_stock: '5', opening_stock: '0',
+  secondary_unit_id: '', conversion_factor: 1,
+};
 
 const TYPE_MAP = {
   '/purchases': { type: 'purchase', title: 'Purchase Bills', createLabel: 'New Purchase' },
@@ -20,8 +28,7 @@ const TYPE_MAP = {
 function today() { return new Date().toISOString().slice(0, 10); }
 
 const emptyLine = {
-  product_id: '', product_name: '', quantity: 1, unit_price: 0, mrp: '', tax_rate: 0,
-  tax_type: 'exclusive', discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '',
+  product_id: '', product_name: '', quantity: 1, unit_price: 0, mrp: '', discount_value: 0, discount_type: 'amount', batch_number: '', expiry_date: '',
 };
 
 function PurchaseList() {
@@ -81,13 +88,13 @@ function PurchaseList() {
           <>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Supplier')}</th><th>{t('Amount')}</th><th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th></tr></thead>
+                <thead><tr><th>{t('Number')}</th><th>{t('Date')}</th><th>{t('Party')}</th><th>{t('Amount')}</th><th>{t('Paid')}</th><th>{t('Balance')}</th><th>{t('Status')}</th><th>{t('Payment')}</th><th>{t('Actions')}</th></tr></thead>
                 <tbody>
                   {items.map((p) => (
                     <tr key={p.id}>
                       <td data-label={t('Number')} style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }} onClick={() => navigate(`/purchases/${p.id}`)}>{p.bill_number}</td>
                       <td data-label={t('Date')}>{p.bill_date}</td>
-                      <td data-label={t('Supplier')}>{p.supplier_name || '—'}</td>
+                      <td data-label={t('Party')}>{p.party_name || '—'}</td>
                       <td data-label={t('Amount')} style={{ fontWeight: 600 }}>{formatMoney(p.grand_total)}</td>
                       <td data-label={t('Paid')}>{formatMoney(p.paid_amount)}</td>
                       <td data-label={t('Balance')}>{formatMoney(p.balance_amount)}</td>
@@ -119,18 +126,28 @@ function PurchaseForm() {
   const navigate = useNavigate();
   const { formatMoney, t } = useAuth();
   const { success, error } = useToast();
-  const [suppliers, setSuppliers] = useState([]);
+  const [parties, setParties] = useState([]);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [units, setUnits] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [prodModal, setProdModal] = useState(false);
+  const [prodForm, setProdForm] = useState(emptyProduct);
   const [form, setForm] = useState({
-    supplier_id: '', bill_date: today(), due_date: '', supplier_invoice: '',
+    party_id: '', bill_date: today(), due_date: '', party_invoice: '',
     discount_type: 'amount', discount_value: 0, notes: '', paid_amount: 0, payment_mode: 'cash',
   });
   const [items, setItems] = useState(() => [withRowId(emptyLine)]);
 
-  useEffect(() => {
-    suppliersAPI.list({ limit: 100 }).then((r) => setSuppliers(r.data.data)).catch(() => {});
+  const loadMasters = () => {
+    partiesAPI.list({ limit: 100 }).then((r) => setParties(r.data.data)).catch(() => {});
     productsAPI.list({ limit: 100 }).then((r) => setProducts(r.data.data)).catch(() => {});
+    inventoryAPI.categories().then((r) => setCategories(r.data.data)).catch(() => {});
+    inventoryAPI.units().then((r) => setUnits(r.data.data)).catch(() => {});
+  };
+
+  useEffect(() => {
+    loadMasters();
   }, []);
 
   /** Copy master data onto a line once it is linked to a known product. */
@@ -138,8 +155,6 @@ function PurchaseForm() {
     line.product_id = p.id;
     line.product_name = p.name;
     line.unit_price = p.purchase_price;
-    line.tax_rate = p.tax_rate || 0;
-    line.tax_type = p.tax_type || 'exclusive';
     line.mrp = p.mrp || '';
     line.hsn_code = p.hsn_code;
     line.unit_id = p.unit_id;
@@ -192,7 +207,7 @@ function PurchaseForm() {
     setSaving(true);
     try {
       const res = await purchasesAPI.create({
-        ...form, bill_type: cfg.type, supplier_id: form.supplier_id || null,
+        ...form, bill_type: cfg.type, party_id: form.party_id || null,
         items: validItems.map(({ _rid, ...i }) => ({ ...i, mrp: Number(i.mrp) || 0 })),
         paid_amount: Number(form.paid_amount) || 0,
         discount_value: Number(form.discount_value) || 0, status: 'completed',
@@ -217,10 +232,10 @@ function PurchaseForm() {
         <div className="card-body">
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label">{t('Supplier')}</label>
-              <select className="form-control" value={form.supplier_id} onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}>
-                <option value="">{t('Select supplier')}</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <label className="form-label">{t('Party')}</label>
+              <select className="form-control" value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })}>
+                <option value="">{t('Select party')}</option>
+                {parties.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -228,8 +243,8 @@ function PurchaseForm() {
               <input className="form-control" type="date" value={form.bill_date} onChange={(e) => setForm({ ...form, bill_date: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Supplier Invoice #</label>
-              <input className="form-control" value={form.supplier_invoice} onChange={(e) => setForm({ ...form, supplier_invoice: e.target.value })} />
+              <label className="form-label">Party Invoice #</label>
+              <input className="form-control" value={form.party_invoice} onChange={(e) => setForm({ ...form, party_invoice: e.target.value })} />
             </div>
           </div>
         </div>
@@ -241,7 +256,7 @@ function PurchaseForm() {
         <div className="card-header"><div className="card-title">{t('Items')}</div></div>
         <div className="table-wrap">
           <table className="items-table">
-            <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('MRP')}</th><th>{t('Tax %')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
+            <thead><tr><th>{t('Product')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('MRP')}</th><th>{t('Batch')}</th><th>{t('Total')}</th><th></th></tr></thead>
             <tbody>
               {items.map((item, idx) => (
                 <tr key={item._rid} onKeyDown={(e) => handleItemKeyDown(e, idx)}>
@@ -261,7 +276,6 @@ function PurchaseForm() {
                   <td data-label={t('Qty')}><input className="form-control" type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} /></td>
                   <td data-label={t('Price')}><input className="form-control" type="number" value={item.unit_price} onChange={(e) => updateItem(idx, 'unit_price', e.target.value)} /></td>
                   <td data-label={t('MRP')}><input className="form-control" type="number" value={item.mrp} onChange={(e) => updateItem(idx, 'mrp', e.target.value)} placeholder={t('MRP')} /></td>
-                  <td data-label={t('Tax %')}><input className="form-control" type="number" value={item.tax_rate} onChange={(e) => updateItem(idx, 'tax_rate', e.target.value)} /></td>
                   <td data-label={t('Batch')}><input className="form-control" value={item.batch_number} onChange={(e) => updateItem(idx, 'batch_number', e.target.value)} placeholder={t('Batch#')} /></td>
                   <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(calcItemTotal(item))}</td>
                   <td data-label={t('Actions')}><button className="btn-icon" onClick={() => setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev))}><XCircle size={16} /></button></td>
@@ -270,8 +284,9 @@ function PurchaseForm() {
             </tbody>
           </table>
         </div>
-        <div style={{ padding: 12 }}>
+        <div style={{ padding: 12, display: 'flex', gap: 8 }}>
           <button className="btn btn-sm btn-secondary" onClick={addBlankItem}>+ {t('Add Row')}</button>
+          <button className="btn btn-sm btn-secondary" onClick={() => setProdModal(true)}>+ {t('Quick Add Product')}</button>
         </div>
       </div>
       <div className="card">
@@ -294,6 +309,32 @@ function PurchaseForm() {
           </div>
         </div>
       </div>
+
+      <Modal open={prodModal} onClose={() => setProdModal(false)} title={t('Quick Add Product')} size="lg"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setProdModal(false)}>{t('Cancel')}</button>
+            <button className="btn btn-primary" onClick={async () => {
+              if (!prodForm.name) return error(t('Name is required'));
+              try {
+                await productsAPI.create(prodForm);
+                success(t('Product created'));
+                setProdModal(false);
+                loadMasters();
+              } catch (err) { error(apiErrorMessage(err, t, 'Failed')); }
+            }}>{t('Save Product')}</button>
+          </>
+        }
+      >
+        <div className="form-row">
+          <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="form-label">{t('Name')}*</label><input className="form-control" value={prodForm.name} onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Barcode')}</label><input className="form-control" value={prodForm.barcode} onChange={(e) => setProdForm({ ...prodForm, barcode: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Category')}</label><select className="form-control" value={prodForm.category_id} onChange={(e) => setProdForm({ ...prodForm, category_id: e.target.value })}><option value="">{t('Select')}</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">{t('Unit')}</label><select className="form-control" value={prodForm.unit_id} onChange={(e) => setProdForm({ ...prodForm, unit_id: e.target.value })}><option value="">{t('Select')}</option>{units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">{t('Purchase Price')}</label><input className="form-control" type="number" value={prodForm.purchase_price} onChange={(e) => setProdForm({ ...prodForm, purchase_price: e.target.value })} /></div>
+          <div className="form-group"><label className="form-label">{t('Selling Price')}</label><input className="form-control" type="number" value={prodForm.selling_price} onChange={(e) => setProdForm({ ...prodForm, selling_price: e.target.value })} /></div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -315,7 +356,7 @@ function PurchaseDetail() {
   return (
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">{data.bill_number}</h1><p className="page-subtitle">{data.bill_date} · {data.supplier_name}</p></div>
+        <div><h1 className="page-title">{data.bill_number}</h1><p className="page-subtitle">{data.bill_date} · {data.party_name}</p></div>
         <div style={{ display: 'flex', gap: 8 }}><a className="btn btn-secondary" href={purchasesAPI.pdf(id)} target="_blank" rel="noreferrer"><Printer size={18} /> PDF</a><button className="btn btn-secondary" onClick={() => navigate(-1)}>{t('Back')}</button></div>
       </div>
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
@@ -327,12 +368,12 @@ function PurchaseDetail() {
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>#</th><th>{t('Item')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Tax')}</th><th>{t('Total')}</th></tr></thead>
+            <thead><tr><th>#</th><th>{t('Item')}</th><th>{t('Qty')}</th><th>{t('Price')}</th><th>{t('Total')}</th></tr></thead>
             <tbody>
               {(data.items || []).map((item, i) => (
                 <tr key={item.id}>
                   <td data-label="#">{i + 1}</td><td data-label={t('Item')}>{item.product_name}</td><td data-label={t('Qty')}>{item.quantity}</td>
-                  <td data-label={t('Price')}>{formatMoney(item.unit_price)}</td><td data-label={t('Tax')}>{formatMoney(item.tax_amount)}</td>
+                  <td data-label={t('Price')}>{formatMoney(item.unit_price)}</td>
                   <td data-label={t('Total')} style={{ fontWeight: 600 }}>{formatMoney(item.total)}</td>
                 </tr>
               ))}
